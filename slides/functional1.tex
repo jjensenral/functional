@@ -1,0 +1,423 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\usetheme{default}
+\newcommand\cat[1]{\mathcal{#1}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\bullet}{\rightarrow}{#2}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{January 30, 2022}
+\title{Functional Programming}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline}
+
+  \begin{itemize}
+    \item This talk
+    \begin{itemize}
+\item Introibo
+\item Pure Functional Programming Principles
+    \end{itemize}
+  \item Future talks
+    \begin{itemize}
+  \item Advanced(ish) Functional Programming
+\item Impure Functional? Side Effects
+\item Category Theory
+\item Categories and Functions
+\item Categories and Computation
+    \end{itemize}
+\end{itemize}
+
+\end{frame}
+
+
+
+
+\begin{frame}
+  Let us get together and study.  As the Poet once said,
+  \begin{quote}
+The full-spread power of Emacs is calming and excellent to the soul
+  \end{quote}
+The same is true for category theory, and Lisp.  And mostly true for functional programming.
+\end{frame}
+
+\begin{frame}{This talk}
+  This talk is the first of $n>2$ on functional programming with (E)Lisp; it was given to RSEmacs
+  01 Feb 2022.
+
+   \url{https://m-x-research.github.io/}
+\end{frame}
+
+\begin{frame}{Rules and Terminology}
+  \begin{itemize}
+  \item Interrupt to ask questions -- we will be covering a lot of different ground.  Best to ask before we are on a different topic.  The first part of this talk is meant to be more interactive, the second (``monadland'') is less so.
+  \item Some terminology:
+    \begin{itemize}
+    \item ``s.t.'' == ``such that''
+    \item iff == ``if and only if''
+    \item I might use the word ``map'' for $\mapsto$, as in \texttt{sqrt} maps $9$ to $3$
+    \item EL == Emacs Lisp; CL = Common Lisp (\texttt{M-x slime})
+    \item Inferior languages = languages which are not Lisp
+    \end{itemize}
+  \item MonadLand Arrows (to be explained later):
+    \begin{itemize}
+    \item $\rightarrow$ for arrow, function, functor 
+    \item $\nat{}{}$ for natural transformation
+    \item $\rightharpoonup$ for adjunction
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Functional programming}
+\label{sec:org033efd0}
+
+Introduction to Functional Programming (Theory and Practice) with (Emacs) Lisp (one tends to use parentheses a lot (like this one) when writing Lisp talks)
+
+\smallskip
+The author will attempt a synthesis of four different views:
+
+\begin{itemize}
+\item CS (IANACS): types, lambda calculus
+\item Maths: category theory
+\item "Programming theory": pure and impure functional
+\item "Programming practice": Emacs Lisp (instead of, say, Haskell)
+\end{itemize}
+
+Written in the author's Copious Spare Time™, any opinions (and mistakes) are his own (unless stated otherwise).  Lisp examples are ELisp unless indicated otherwise.  It assumes familiarity with ELisp.
+
+\end{frame}
+
+\begin{frame}{Principles of Functional Programming}
+\label{sec:orgf4f5447}
+
+\emph{Pure} functional programs are ``defined'' by these basic features:
+
+\begin{itemize}
+\item Variables (\texttt{let}, \texttt{let*} etc) are immutable
+  \begin{itemize}
+  \item No \texttt{setq}/\texttt{setf} or modifier ...\texttt{f} (eg \texttt{incf})
+  \item Use \emph{recursion} instead of \texttt{loop} or \texttt{do}, \texttt{do*}, etc
+  \end{itemize}
+\item Functions are called \emph{without side effects}
+  \begin{itemize}
+  \item No \texttt{n}... functions (\texttt{nreverse} etc) ...
+  \item ... except when the side effect has no effect (see later)
+  \end{itemize}
+\item Can pass functions as argument
+\item Divide and conquer strategy for solving problems
+\end{itemize}
+
+Later we shall zoom in on advanced features of functional programming in general and in Lisp(s) in particular.
+
+\end{frame}
+
+\begin{frame}{Why Functional?}
+  \begin{itemize}
+  \item Elegance (much of the time)
+  \item Correctness
+    \begin{itemize}
+    \item Programmer-readable correctness (loop invariants become parameter constraints)
+    \item Compiler-inferred correctness (stronger type checks)
+    \end{itemize}
+  \item Cleaner code (examples later)
+  \item Like learning Lisp, it makes you a Better Programmer\copyright
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Why not functional?}
+We shall see examples of these during the talk (and how to mitigate (some of) them):
+  \begin{itemize}
+  \item Inefficiencies:
+    \begin{itemize}
+    \item copy lists/arrays to update them
+    \item temporary lists being created
+    \item more function calls? (stack frames etc)
+      \begin{itemize}
+      \item \texttt{setq} is usually cheaper than a function call
+      \end{itemize}
+    \end{itemize}
+  \item Some patterns are difficult to program functionally
+    \begin{itemize}
+    \item Arrays are a good example, particularly multidimensional
+      \begin{itemize}
+      \item Particularly arbitrary-dimensional (generic) arrays which most languages other than CL struggle with
+      \end{itemize}
+    \item In fact, arrays have theoretical, practical and lispological ``issues''
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Functions as arguments}
+\begin{verbatim}
+((lambda (x y) (+ x y)) 2 3)
+5
+(funcall (lambda (x y) (+ x y)) 2 3)
+5
+(let ((plus #'+)) (funcall plus 2 3))
+5
+(defun fred (x)
+  (funcall (if (evenp x)
+	       #'sqrt
+	     (lambda (y) (- y)))
+	   x))
+fred
+(mapcar #'fred '(1 2 3 4 5 6))
+(-1 1.4142135623730951 -3 2.0 -5 2.449489742783178)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Example}
+\label{sec:org25d9a35}
+
+\begin{verbatim}
+(defun fact (k)
+  (if (zerop k) 1 (* k (fact (1- k)))))
+fact
+(fact 12)
+479001600
+\end{verbatim}
+\begin{itemize}
+\item Uses \(n!=n(n-1)!\) for \(n>0\), and \(0!=1\)
+\item Should check for \(n<0\) or \(n\) not a number
+\begin{itemize}
+\item In "true" functional languages like Haskell and F\#, the type is \emph{inferred} (from \texttt{*} and \texttt{-})
+\item (Some) Lisps do something similar but usually less strict
+\end{itemize}
+\end{itemize}
+
+\end{frame}
+\begin{frame}[fragile]{Example - A Functional Koan}
+  This is CL from the author's Advent of Code(AoC) 2021, 01 Dec.
+\begin{verbatim}
+(defun solve1 (data)
+  "Count number of numbers that increase in a list"
+  (count-if #'plusp (mapcar #'- (cdr data) data)))
+\end{verbatim}
+\begin{itemize}
+\item \texttt{mapcar} maps as long as the shortest of its input lists
+\item In efficiency terms, an intermediate list of length $n-1$ (for input of length $n$) is created
+  \begin{itemize}
+  \item This list will need to be \emph{gc}ed, eventually
+  \item As a (functional) Lisp programmer, you have to consider efficiency - both memory and time
+  \end{itemize}
+\item EL's \texttt{mapcar} only accepts unary functions (and a single list)
+\end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Example - A Less Elegant Koan}
+Another short example from the same code base:
+\begin{verbatim}
+(defun sum-3-window (list)
+  "For a list of inputs, return the sum of
+   sliding length 3 windows"
+  (mapcar (lambda (a b c) (+ a b c))
+          list (cdr list) (cddr list)))
+\end{verbatim}
+\begin{itemize}
+\item No unnecessary lists created
+\item Exercise: what if the length were passed in?
+\item Again won't work with EL's \texttt{mapcar}
+\end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Example -- A Solver Wrapper}
+Also from the author's AoC21, allowing different inputs for testing:
+\begin{verbatim}
+(defun solve (data solve-func)
+  (cond
+    ((streamp data) (funcall solve-func data))
+    ((pathnamep data)
+      (with-open-file (foo data
+          :direction :input :if-does-not-exist :error)
+        (solve foo solve-func)))
+    ((stringp data)
+      (solve (make-string-input-stream data) solve-func))
+    (t (error "Cannot process ~A" (type-of data)))))
+\end{verbatim}
+\begin{itemize}
+\item This is CL rather than EL but you can see how it works
+\item In CL, pathnames are distinct from strings (though the latter can implicitly convert to the former)
+\item \texttt{etypecase} would have been a better choice for this particular problem
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}{Example: an $n$-ary plus}
+Let's assume we have a $2$-ary plus (\texttt{\#'+}) and we want to build an $n$-ary plus.
+
+\medskip
+Mathematically(ish), we define:
+\begin{alignat*}{2}
+  \mathrm{plus}() &= 0 && \qquad \text{(empty list);} \\
+  \mathrm{plus}(a) & = a && \qquad \text{(one element);} \\
+  \mathrm{plus}(a,b \cdots) &= a+\, \mathrm{plus}(b \cdots) && \qquad \text{(recursively)}
+\end{alignat*}
+The effect is that of
+$$\mathrm{plus}(a,b,c,d)=a+(b+(c+d))$$
+\end{frame}
+\begin{frame}[fragile]{$n$-ary \texttt{+}}
+Turning this into code, we get
+\begin{verbatim}
+(defun my+ (my-list)
+  "Sum an arbitrary number of elements"
+  (cond
+    ((= (length my-list) 0) 0)
+    ((= (length my-list) 1) (first my-list))
+    (t (+ (first my-list) (my+ (rest my-list))))))
+\end{verbatim}
+
+\medskip
+This works and is functional, but it is not a good implementation for several reasons.  Your meditation exercise (before turning to the next slide) is to ponder why.
+\end{frame}
+
+\begin{frame}{$n$-ary \texttt{+}}
+  \begin{itemize}
+  \item (Usability) First of all, we would like to call \texttt{(my+ 1 2 3 4)} instead of \texttt{(my+ '(1 2 3 4))}
+  \item (Efficiency) Second, the \texttt{length} function is called which will calculate the length every time; we just need to know if the list is empty (or has a single element)
+  \item (Correctness) Calling the function on a long list will exhaust the stack (which could lead to heisenbugs as we don't know how much space is left on the stack)
+  \item (Correctness) floatologically speaking, adding numbers na\"\i vely can lead to precision loss etc.\ (we shall ignore this in this talk)
+  \end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{$n$-ary \texttt{+}}
+\begin{verbatim}
+(defun my+ (&rest my-list)
+  "Sum an arbitrary number of elements"
+  (cond
+    ((endp my-list) 0)
+    ((endp (cdr my-list)) (first my-list))
+    (t (+ (first my-list) (apply #'my+ (rest my-list))))))
+\end{verbatim}
+Notice the \emph{four} differences with the earlier version.  (\texttt{car} is synonymous with \texttt{first} and \texttt{cdr} with \texttt{rest}; the choice is mostly stylistic.  The author prefers \texttt{first}/\texttt{rest} for functional divide-and-conquer and \texttt{c*r} for everything else (see also Naming, later))
+
+\smallskip
+Meditation: there is a more subtle performance issue (hint: how many times is \texttt{length}, resp.\ \texttt{endp} called for a list of length $n\geq 2$?)  And we haven't dealt (yet) with the \emph{correctness} issues.
+\end{frame}
+\begin{frame}[fragile]{$n$-ary \texttt{+}}
+Of course \texttt{endp} is much, much cheaper than \texttt{length} in general
+\begin{verbatim}
+(defun my+ (&rest my-list)
+  "Sum an arbitrary number of elements"
+  (if (endp my-list) 0 (my+1 my-list)))
+
+(defun my+1 (my-list)
+  "Helper function for my+: sum elements of a non-empty list"
+  (if (endp (cdr my-list)) (first my-list)
+    (+ (first my-list) (my+1 (rest my-list)))))
+\end{verbatim}
+Performance testing would be needed to decide whether it is worth it
+
+\smallskip
+Meditation exercise: Could we have passed in the function as well (\`a la \texttt{mapcar})?  Also, we still haven't dealt with the \emph{correctness} issues.
+\end{frame}
+
+\begin{frame}[fragile]{$n$-ary \texttt{+}}
+   Of course, Emacs's \texttt{+} is already $n$-ary.  Using built-ins:
+\begin{verbatim}
+(+ 1 2 3 4 5)
+15
+(apply #'+ '(1 2 3 4 5))
+15
+(funcall #'+ 1 2 3 4 5)
+15
+(reduce #'+ '(1 2 3 4 5))
+15
+\end{verbatim}
+or with the function bound in a variable:
+\begin{verbatim}
+(let ((plus #'+)) (funcall plus 3 4))
+7
+(let ((plus #'+)) (apply plus '(3 4)))
+7
+\end{verbatim}
+
+Meditation: why do \texttt{reduce} and \texttt{apply} seem to do exactly the same thing?
+
+\end{frame}
+\begin{frame}[fragile]{Elegance vs Efficiency}
+In a list \texttt{seqs} of sequences (again from AoC), all have the same length:
+\begin{verbatim}
+(apply #'= (mapcar #'length seqs))
+\end{verbatim}
+\medskip
+
+Meditation: this is short, functional and elegant.
+
+\smallskip
+Usually, ``short'' and ``functional'' imply ``elegant'' (and \emph{inefficient}...?)
+
+\medskip
+It is indeed not the most \emph{efficient} implementation in general.  Why not?  Does it matter?  If it matters, how can it fixed (functionally)?
+\end{frame}
+
+\begin{frame}[fragile]{Example -- legitimate use of side effects}
+  Sometimes, using functions with side effects (i.e.\ they alter their argument) is safe, correct and functional:
+\begin{verbatim}
+(defun integer-digits (n radix)
+  "Split a non-negative integer into its digits"
+  (labels ((i-dig (n)
+             (if (< n radix) (list n)
+               (let ((q (floor n radix))
+                     (r (mod n radix)))
+                   (cons r (i-dig q))))))
+    (nreverse (i-dig n))))
+(integer-digits 2345 10)
+(2 3 4 5)
+\end{verbatim}
+(comments on next slide)
+\end{frame}
+\begin{frame}
+\begin{itemize}
+\item \texttt{labels} define local functions that can call themselves (or each other)
+\item The temporary list is an r-value (in C++-speak), so using \texttt{nreverse} on it avoids creating more cons cells
+  \begin{itemize}
+  \item Indeed, it is illegal (or at least a very bad idea) to call \texttt{nreverse} \emph{et al} on l-values
+  \item Not all \texttt{n} functions are consistently named: \texttt{sort} and \texttt{stable-sort} also destroy their arguments
+  \end{itemize}
+\item In CL, \texttt{floor} returns both the quotient and the remainder, so is more efficient
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Example -- Reduce Koan}
+  The inverse of \texttt{integer-digits}:
+\begin{verbatim}
+(defun digits-to-integer (digits radix)
+  "Turn list of digits into integer with given radix"
+  (reduce (lambda (a b) (+ (* a radix) b)) digits))
+(digits-to-integer '(2 3 4 5) 10)
+2345
+\end{verbatim}
+Some items for when you meditate on this code:
+\begin{itemize}
+\item Can we express the \emph{type constraint} that \texttt{digits} is a list of integers $k$ s.t.\ $0\leq k<$\,\texttt{radix}?
+  \begin{itemize}
+  \item Actually it just has to be a \emph{sequence}
+  \item \texttt{(digits-to-integer "ABCD" 100)} $=$ \texttt{65666768}
+  \end{itemize}
+\item What happens if \texttt{digits} is of length 1?  Of length 0?
+\end{itemize}
+
+\end{frame}
+\end{document}

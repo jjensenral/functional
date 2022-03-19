@@ -1,0 +1,526 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\xyoption{pdf}
+\usetheme{default}
+\newcommand\cat[1]{\ensuremath{\mathcal{#1}}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\cdot}{\rightarrow}{#2}}
+\newcommand\tup[1]{\langle #1\rangle}
+\newcommand\id[1]{\mathrm{id}_{#1}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{March 13, 2022}
+\title{Functional Programming 2}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming 2},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline of Talk 2}
+
+  \begin{itemize}
+    \item Previous talk (talk 1):
+    \begin{itemize}
+\item Introibo
+\item Pure Functional Programming Principles
+    \end{itemize}
+  \item This talk (and probably the next):
+    \begin{itemize}
+    \item Mapping
+    \item Labels and naming
+    \item Lists
+    \end{itemize}
+    
+  \item Advanced(ish) Topics
+\item Impure Functional? Side Effects
+\item Category Theory
+\item Categories and Functions
+\item Categories and Computation
+\end{itemize}
+
+Still written in the author's spare time!
+
+\medskip
+
+Very much a personal perspective, and not following any particular textbook.  Using \emph{meditations} and \emph{exercises} -- solutions to all exercises given during the talks.
+
+\end{frame}
+
+
+\section{Introibo}
+\label{sec:org0edb596}
+
+\begin{frame}{Summary of Talk 1}
+  \begin{itemize}
+  \item Basic Principles
+    \begin{itemize}
+    \item Variables are immutable
+    \item Functions have no side effect
+      \begin{itemize}
+      \item Side effects permitted on r-values (often preferred for efficiency)
+      \item In this talk we look at functions with side effects
+      \end{itemize}
+    \item ``Divide and conquer'' approach to problems
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Summary of Talk 1}
+\begin{verbatim}
+(defun fact (k)
+  "Calculate the factorial of a number"
+  (unless (and (numberp k) (integerp k) (>= k 0))
+    (error "Unable to take factorial of %s" k))
+  (fact-1 k))
+\end{verbatim}
+\texttt{fact} is the entry point; it delegates to a helper function which is guaranteed to be called with a non-negative integer.  This means that (in principle) checks can be turned off for the helper, and it can be optimised to run faster:
+\begin{verbatim}
+(defun fact-1 (k)
+  (if (zerop k) 1 (* k (fact-1 (1- k)))))
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{More Mapping}
+  Meditation exercise: why do mapping \emph{et al.} not work with macros and special forms?
+\begin{verbatim}
+(apply #'and '(nil t t))
+\end{verbatim}
+raises an error, though these will work in EL, but not in CL:
+\begin{verbatim}
+(funcall #'if t 'yes 'no)
+yes
+(funcall #'and t t nil)
+nil
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Example -- Sorting Months}
+Where does August come before July, April before January?
+\begin{verbatim}
+(defvar +dates+ '((10 . "Aug") (2 . "Dec") (17 . "Mar") (30 . "Apr") (4 . "Jan") (2 . "Aug")))
+\end{verbatim}
+Let's start with a function to calculate the month number:
+\begin{verbatim}
+(defun month-number (m)
+  (1+ (floor
+        (search m
+          "JanFebMarAprMayJunJulAugSepOctNovDec")
+        3)))
+month-number
+(month-number "Jan")
+1
+(month-number "Dec")
+12
+\end{verbatim}
+This function is \emph{correct} in the sense of producing the right output given the right input, but it does have some flaws and inefficiencies (exercise) -- we shall return to these later.
+\end{frame}
+
+\begin{frame}[fragile]{Example -- Sorting Months}
+Now the problem is simple: first we add the month number...
+\begin{verbatim}
+(mapcar (lambda (d) (cons (month-number (cdr d)) d)) +dates+)
+((8 10 . "Aug") (12 2 . "Dec") (3 17 . "Mar") (4 30 . "Apr") (1 4 . "Jan") (8 2 . "Aug"))
+\end{verbatim}
+then we sort those
+\begin{verbatim}
+(mapcar #'cdr
+ (sort
+  (mapcar (lambda (d) (cons (month-number (cdr d)) d)) +dates+)
+  (lambda (d1 d2) (or (< (first d1) (first d2))
+                      (and (= (first d1) (first d2))
+                           (< (second d1) (second d2)))))))
+((4 . "Jan") (17 . "Mar") (30 . "Apr") (2 . "Aug") (10 . "Aug") (2 . "Dec"))
+\end{verbatim}
+This is what Perl calls the ``Schwarzian Transform'' -- add the order
+value to the entries, sort on the order value, and then strip it off
+again at the end.
+\end{frame}
+
+\begin{frame}[fragile]{Example -- Sorting Months}
+Of course with this being Lisp, we can do better:
+\begin{verbatim}
+(sort (copy-seq +dates+)
+  (lambda (d1 d2)
+    (let ((m1 (month-number (cdr d1)))
+          (m2 (month-number (cdr d2))))
+      (or (< m1 m2) (and (= m1 m2) (< (car d1) (car d2)))))))
+((4 . "Jan") (17 . "Mar") (30 . "Apr") (2 . "Aug") (10 . "Aug") (2 . "Dec"))
+\end{verbatim}
+Meditation: why do we need \texttt{copy-seq} here when we didn't need it before?
+ Is this solution better than the Schwarzian transform?
+
+\medskip
+In CL, the \texttt{:key} parameter is used to extract the field to be sorted on, but it can also be used to calculate the order:
+\begin{verbatim}
+(sort (copy-seq +dates+) #'<
+  :key (lambda (d) (+ (car d) (* 40 (month-number (cdr d))))))
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{Example -- Magic Mapping with Apply}
+From the author's AoC21, Day 9, in CL rather than EL:
+\begin{verbatim}
+(defun transpose (rows)
+  "Transpose rows and columns, list of lists version"
+  (apply #'mapcar #'list rows))
+\end{verbatim}
+This magic works because \texttt{apply} accepts the extra argument (\texttt{\#'list}) to pass to \texttt{mapcar}:
+\begin{verbatim}
+(transpose '((1 2 3) (4 5 6)))
+((1 4) (2 5) (3 6))
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Advanced Maps}
+  Meditate on the advanced mapping functions: this CL example is also from AoC21 Day 9 (uses \texttt{incf} to get map-indexed):
+\begin{verbatim}
+(defun row-troughs (row)
+  "Return the locations of the \"troughs\" in a row of
+   numbers, local minima"
+  ;; General case: haven't thought too much about it
+  (let* ((ext-row (cons most-positive-fixnum
+                     (append row
+                        (cons most-positive-fixnum nil))))
+         (idx 0))
+    (mapcan (lambda (a b c)
+              (prog1 (if (and (> a b) (< b c))
+                       (list idx) nil) (incf idx)))
+          ext-row (cdr ext-row) (cddr ext-row))))
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Example Koan - fizzbuzz 1}
+\begin{verbatim}
+(defun buzz (num) (if (zerop (mod num 5)) (list 'buzz) nil))
+(defun fizz (num)
+  (funcall
+   (if (zerop (mod num 3))
+       (lambda (x) (cons 'fizz x)) #'identity)
+   (buzz num)))
+(fizz 2)
+nil
+(fizz 6)
+(fizz)
+(fizz 10)
+(buzz)
+(fizz 30)
+(fizz buzz)
+\end{verbatim}
+Meditation: why is \texttt{fizz} defined like this?  (We'll write a cleaner version later)
+\end{frame}
+\begin{frame}[fragile]{Example Koan - fizzbuzz 2}
+As an aside, would this work (i.e.\ without using \texttt{funcall})?
+\begin{verbatim}
+...
+((if (zerop ...) (lambda (x) ...) #'identity) (buzz num))
+\end{verbatim}
+
+\end{frame}
+\begin{frame}[fragile]{Example Koan - fizzbuzz 3}
+Are these better -- and which of these is the best?
+\begin{verbatim}
+(defun fizz (num)
+  (let ((b (buzz num)))
+    (if (zerop (mod num 3)) (cons 'fizz b) b)))
+\end{verbatim}
+or
+\begin{verbatim}
+(defun fizz (num)
+  (if (zerop (mod num 3)) (cons 'fizz (buzz num))
+      (buzz num)))
+(fizz 7)
+nil
+(fizz 3)
+(fizz)
+(fizz 5)
+(buzz)
+(fizz 15)
+(fizz buzz)
+\end{verbatim}
+
+\end{frame}
+\begin{frame}[fragile]{Example Koan - fizzbuzz 4}
+Digression: We need to generate lists of integers (called iota from APL, A+ et al):
+\begin{verbatim}
+(defun iota (k)
+  "Generate a list of integers from 1 to k" 
+  (labels ((iota1 (k1)
+                  (if (< k1 1) nil
+                    (cons k1 (iota1 (1- k1))))))
+    (nreverse (iota1 k))))
+\end{verbatim}
+Meditations:
+\begin{itemize}
+\item Ponder the use of \texttt{nreverse} -- why it is needed, why it is safe
+  \begin{itemize}
+  \item We shall see later how to build better \texttt{iota}s
+  \end{itemize}
+\item Why might the variable/function naming not be ideal?  Could we have used \texttt{k} in \texttt{iota1}?  (We will return to naming shortly)
+\item \texttt{(defun fact (k) (reduce \#'* (iota k)))}
+\end{itemize}
+
+\end{frame}
+\begin{frame}[fragile]{Example Koan - fizzbuzz 5}
+This is not true fizzbuzz but we want to show \texttt{mapcan} in EL:
+\begin{verbatim}
+(defun fizzbuzz (num)
+  (mapcan #'fizz (iota num)))
+(fizzbuzz 15)
+(fizz buzz fizz fizz buzz fizz fizz buzz)
+\end{verbatim}
+The point is that \texttt{fizz} can return 0, 1 or 2 results and they are merged into the result list (destructively!)
+\begin{itemize}
+\item \texttt{mapcan} merges lists together (destructively), so the map function can return multiple results
+\item For 0 or 1 values, it may be cleaner to use \texttt{delete}, \texttt{delete-if} or \texttt{delete-if-not} (as appropriate)
+  \begin{itemize}
+  \item Note that logically \texttt{delete-if-not} does ``select-if''
+  \item \texttt{remove}, \texttt{remove-if} and \texttt{remove-if-not} are the side-effect-free versions
+  \end{itemize}
+\end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Example Koan -- FizzBuzz \$$-1$}
+  Since we've started, we might as well solve FizzBuzz (with the definitions from previous slides):
+\begin{verbatim}
+(defun fizzbuzz-number (k)
+  "Return symbol from fizzbuzzing a number, or nil"
+  (let ((fb (fizz k)))
+    (if (cdr fb) 'fizzbuzz  ; >1 elt
+      (car fb))))
+
+(defun fizzbuzz (k)
+  "FizzBuzz from 1 to k"
+  (mapcar (lambda (x) (or (fizzbuzz-number x) x))
+    (iota k)))
+
+(fizzbuzz 21)
+(1 2 fizz 4 buzz fizz 7 8 fizz buzz 11 fizz ...)
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Example Koan -- FizzBuzz \$}
+Incidentally, in CL if we are worried about the extra list being generated (and eventually gc'ed) in
+\begin{verbatim}
+(mapcar (lambda (x) ...) (iota k))
+\end{verbatim}
+we can reuse the list with (permitted) side effect (as the value produced by \texttt{iota} is an r-value):
+\begin{verbatim}
+(let ((m (iota k)))
+  (map-into m (lambda (x) ...) m))
+\end{verbatim}
+This tells Lisp that we want to reuse \texttt{m} (on the LHS of the lambda) while mapping the values of \texttt{m} (on the RHS), but it obviously less readable than a \texttt{mapcar} and requires the \texttt{let} binding.
+
+\medskip
+Unfortunately, while EL has a function called \texttt{map-into}, it does something quite different.
+
+\medskip
+We will return to fizzbuzz in the Advanced Topics sections 10 and 13.
+\end{frame}
+
+\begin{frame}[fragile]{Advanced maps: Advanced List Iterations}
+\texttt{dolist} iterates over a list.  Functionally we have done the same either with \texttt{first} and \texttt{rest} and \emph{recursion}, or with \texttt{mapcar}.  The latter is like \texttt{dolist} except it produces an output:
+\begin{verbatim}
+(mapcar
+  (lambda (state) (when (goalp state) (throw 'found state)))
+  data)
+(nil nil nil nil nil ...)
+\end{verbatim}
+An output list is needlessly produced, as we here are calling only for side effect (more on side effects later).
+
+\medskip
+Lisp has functions which will happily do the same and discard the result of $\lambda$:
+\begin{verbatim}
+(map nil (lambda (state)
+           (when (goalp state)
+             (throw 'found state)))
+  data)
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Advanced maps}
+How does \texttt{map} differ from \texttt{mapcar}?  It works on \emph{sequences}:
+\begin{verbatim}
+(map 'list (lambda (x) (+ x 2)) [1 2 3 4])
+(3 4 5 6)
+(map 'vector (lambda (x) (- x 2)) '(3 4 5 6))
+[1 2 3 4]
+(map 'string (lambda (x) (+ x 32)) "ABCD")
+"abcd"
+\end{verbatim}
+(the latter being EL only) but accepts \texttt{nil} as its type to discard the output.
+
+\medskip
+Of course this is cleaner if only the type change is desired:
+\begin{verbatim}
+(coerce (list 1 2 3 4) 'vector)
+[1 2 3 4]
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Two patterns implementing \texttt{mapcar}}
+We could have written EL's (simpler) \texttt{mapcar} like this:
+\begin{verbatim}
+(defun our-mapcar (func lst)
+  (if (endp lst) nil
+    (cons (funcall func (first lst))
+          (our-mapcar func (rest lst)))))
+our-mapcar
+(our-mapcar #'sqrt '(16 4 36 5))
+(4.0 2.0 6.0 2.23606797749979)
+\end{verbatim}
+except that it may run out of stack for a longer list (we return to this problem later, in Advanced Topics section 5)
+
+\begin{itemize}
+\item Indeed much of Lisp can be (or is) constructed from a smaller set of primitives (McCarthy)
+\item As we have seen before, the \texttt{first}/\texttt{rest} (or \texttt{car}/\texttt{cdr}) pattern is very common
+\item As is the \texttt{cons}/\texttt{nil} constructing the result
+\item Usually this (combined) pattern is implemented with \texttt{mapcar}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Advanced maps -- sliding window}
+But maps can do more advanced stuff.  Let us first return to the sliding window exercise from the first talk.  We want to sum values
+\begin{verbatim}
+(sum-window 3 '(1 5 4 1 3 6 2))
+(10 10 8 10 11)
+(sum-window 2 '(1 5 4 1 3 6 2))
+(6 9 5 4 9 8)
+(sum-window 4 '(1 2 3))
+nil
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Sliding Window}
+Let's start by writing a helper function: it is to sum variables from a list:
+\begin{verbatim}
+(sum-helper 4 '(2 5 1 3 6 9 1))
+11
+(sum-helper 1 '(2 5 1 3 6 9 1))
+2
+(sum-helper 0 '(2 5 1 3 6 9 1))
+0
+(sum-helper 5 '(1 2 3 4))
+nil
+\end{verbatim}
+This example is Interesting because it has two stop conditions: the counter reaching zero, and the list becoming empty.
+
+\medskip
+Meditation: what is \texttt{(sum-helper 0 nil)}?  Should it be \texttt{0} or \texttt{nil}?
+\end{frame}
+\begin{frame}[fragile]{Sliding Window}
+\begin{verbatim}
+(defun sum-helper (n data)
+  (cond
+   ((zerop n) 0)
+   ((endp data) nil)
+   (t (let ((result (sum-helper (1- n) (rest data))))
+        (and result (+ (first data) result))))))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Sliding Window}
+Now we can write a function to call the helper... we can't just do \texttt{mapcar} as the function would see only \texttt{first} (as with \texttt{dolist}) -- so, instead, we could almost do:
+\begin{verbatim}
+(defun sum-window (k data)
+  (if (endp data) nil
+    (cons (sum-helper k data)
+          (sum-window k (cdr data)))))
+(sum-window 3 '(1 5 4 1 3 6 2))
+(10 10 8 10 11 nil nil)
+\end{verbatim}
+This works, but obviously it generates extra \texttt{nil}s at the end as it has to map across the whole list - so we could write another function to truncate them away.
+
+\medskip
+Notice the \texttt{cons}/\texttt{rest} pattern again -- \emph{nearly} like the \texttt{mapcar} pattern
+\end{frame}
+
+\begin{frame}[fragile]{Sliding Window -- Advanced maps}
+The \texttt{cons}-\texttt{cdr} pattern from the previous slide is a very common functional pattern.  Lisp has a mapping function that can do the same in a single line:
+\begin{verbatim}
+(defun sum-window (k data)
+  (maplist (lambda (d) (sum-helper k d)) data))
+(10 10 8 10 11 nil nil)
+\end{verbatim}
+\texttt{maplist} \texttt{cdr}s across the list, \texttt{cons}ing the results:
+\begin{verbatim}
+(maplist #'identity '(1 2 3 4 5))
+((1 2 3 4 5) (2 3 4 5) (3 4 5) (4 5) (5))
+\end{verbatim}
+These are successive \texttt{cdr}s of the \emph{same} list:
+\begin{verbatim}
+(let ((m (maplist #'identity '(1 2 3 4 5))))
+  (eq (cdar m) (cadr m)))
+t
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Sliding Window -- Advanced maps}
+So we either do
+\begin{verbatim}
+(defun sum-window (k data)
+  (delete nil (maplist (lambda (d) (sum-helper k d)) data)))
+\end{verbatim}
+and we're done; or we do
+\begin{verbatim}
+(defun sum-window (k data)
+  (mapcon (lambda (d)
+            (let ((v (sum-helper k d)))
+              (and v (list v))))
+          data))
+(sum-window 3 '(1 5 4 1 3 6 2))
+(10 10 8 10 11)
+\end{verbatim}
+\texttt{mapcon} is to \texttt{maplist} what \texttt{mapcan} is to \texttt{mapcar} -- it \texttt{nconc}s the results; here we use it to delete the \texttt{nil} entries.
+
+\end{frame}
+\begin{frame}[fragile]{Mapping for side effect}
+This call appears to have the side effect of the lambda, but it doesn't -- why?
+\begin{verbatim}
+(mapcar (lambda (x) (setq x 3)) (list 1 2 3 4))
+(3 3 3 3)
+\end{verbatim}
+but in fact it has no effect at all on the original list:
+\begin{verbatim}
+(let ((y (list 1 2 3 4)))
+  (mapcar (lambda (x) (setq x 3)) y)
+  y)
+\end{verbatim}
+Meditation: why are we using \texttt{list} to create the list instead of the macro \texttt{'}?
+\end{frame}
+
+\begin{frame}[fragile]{Mapping for side effect}
+This works, though -- why?
+\begin{verbatim}
+(let ((y (list 1 2 3 4)))
+  (maplist (lambda (x) (rplaca x (1+ (car x)))) y)
+  y)
+(2 3 4 5)
+\end{verbatim}
+but of course \texttt{maplist} still creates a temporary list which is also updated:
+\begin{verbatim}
+(let ((y (list 1 2 3 4)))
+  (maplist (lambda (x) (rplaca x (1+ (car x)))) y))
+(2 3 4 5)
+\end{verbatim}
+The lists are not \texttt{eq} (though their elements are):
+\begin{verbatim}
+(let ((y (list 1 2 3 4)))
+  (eq y (maplist (lambda (x) (rplaca x 3)) y)))
+nil
+\end{verbatim}
+\bigskip
+This ends the review of the mapping functions!
+\end{frame}
+\end{document}
