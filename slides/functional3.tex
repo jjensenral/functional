@@ -1,0 +1,663 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\usepackage{tabularx}
+\xyoption{pdf}
+\usetheme{default}
+\newcommand\cat[1]{\ensuremath{\mathcal{#1}}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\cdot}{\rightarrow}{#2}}
+\newcommand\tup[1]{\langle #1\rangle}
+\newcommand\id[1]{\mathrm{id}_{#1}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{March 27, 2022}
+\title{Functional Programming 3}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming 3},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline of Talks}
+
+  \begin{itemize}
+    \item Previous talks (talks 1 and 2):
+    \begin{itemize}
+\item Introibo
+\item Pure Functional Programming Principles
+    \item Mapping
+
+    \end{itemize}
+
+  \item This talk (talk 3):
+    \begin{itemize}
+    \item Labels and naming
+    \item Lists (or rather cons cells)
+    \end{itemize}
+
+  \item Advanced(ish) Topics
+\item Impure Functional? Side Effects
+\item Category Theory
+\item Categories and Functions
+\item Categories and Computation
+
+  \end{itemize}
+Still written in the author's spare time!
+
+\medskip
+
+Very much a personal perspective, and not following any particular textbook.  Using \emph{meditations} and \emph{exercises} -- solutions to all exercises given during the talks.
+
+\end{frame}
+
+
+\section{Introibo}
+\label{sec:org0edb596}
+
+
+\begin{frame}{Summary of Talk 2 -- Mapping}
+  One of the core functional programming patterns is to recurse through a list with \texttt{cdr} (or \texttt{rest}), gathering results of a function being called on the elements.
+
+  \medskip
+  Lisp's powerful mapping functions implement this fundamental pattern very concisely:
+  \begin{tabularx}{\linewidth}{|l|X|X|X|}
+    \hline function sees: & list of single value results & nconc'ed list of results & nothing returned \\
+    \hline\hline first elt & \texttt{mapcar} & \texttt{mapcan} & \texttt{mapc} \\
+    \hline whole sublist & \texttt{maplist} & \texttt{mapcon} & \texttt{mapl} \\
+    \hline
+  \end{tabularx}
+
+  \medskip
+  \begin{itemize}
+  \item Sequence functions (lists, vectors, strings)
+    \begin{itemize}
+    \item \texttt{map} acts on \emph{sequences}, returning a sequence (of possibly different type) or \texttt{nil} (side effect call)
+    \item  \texttt{reduce} implements the pattern we used in \texttt{fact}
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Summary of Talk 2 -- Functional Lisp}
+  We saw how core features of Lisp support functional programming:
+  \begin{itemize}
+  \item \texttt{nil} is very powerful:
+    \begin{itemize}
+    \item It evaluates to false
+      \begin{itemize}
+      \item In python and Perl, the empty list evaluates to false
+      \item But in Lisp, false is an empty list (see \texttt{iota1} below)
+      \end{itemize}
+    \item \texttt{(car nil)} $\Rightarrow$ \texttt{nil} (and the same for \texttt{first}) makes code cleaner, shorter
+      \begin{itemize}
+      \item E.g.\ \texttt{(endp (cddr w))} says ``\texttt{w} has 0-2 elements''
+      \end{itemize}
+    \end{itemize}
+  \item Using \texttt{and} and \texttt{or} as control flow
+    \begin{itemize}
+    \item \texttt{and} returns the first \texttt{nil} it finds, or last expr
+    \item \texttt{or} returns its first non-\texttt{nil}
+  \item E.g.\ \texttt{iota1} (helper for \texttt{iota}):
+    \begin{itemize}
+    \item \texttt{(defun iota1 (k1) (and (>= k1 1) (cons k1 (iota1 (1- k1)))))}
+    \item \texttt{(when (>= k1 1) ...)} will also return \texttt{nil} for \texttt{k1}$<1$  but the \texttt{if} version is better style
+    \end{itemize}
+    \end{itemize}
+  \item Using convenient \emph{symbols} where Inferior Languages™ use strings, enums, etc (more on symbols in this talk and later talks)
+  \end{itemize}
+
+\end{frame}
+
+\begin{frame}{Summary of Talk 2 -- Answers}
+  Answers to meditations and exercises:
+  \begin{itemize}
+  \item \texttt{and}, \texttt{or}, \texttt{if} etc \emph{are not functions} so cannot be used with \texttt{funcall} and mapping functions
+  \item How to do \texttt{(search m "JanFebMar...")} better
+    \begin{itemize}
+    \item Answer later in this talk
+    \end{itemize}
+  \item Why do we need to copy a list before sorting it?
+    \begin{itemize}
+    \item Because \texttt{sort} destroys its argument
+    \item It is an ``\texttt{n}'' function though not named so
+    \item The \texttt{mapcar}s in the Schwarzian transform created temporary lists
+    \end{itemize}
+  \item Similarly if we know the list will be altered, we may have to create it as \texttt{(list 1 2 3 4)} rather than \texttt{'(1 2 3 4)}
+    \begin{itemize}
+    \item Lisp may be justified in assuming \texttt{'(1 2 3 4)} constant
+    \item Though ELisp doesn't!
+    \end{itemize}
+  \item \texttt{labels} and naming
+    \begin{itemize}
+    \item Answer on next slide
+    \end{itemize}
+
+  \end{itemize}
+\end{frame}
+
+
+\begin{frame}[fragile]{To \texttt{labels} or not to \texttt{labels}?}
+\begin{verbatim}
+(defun iota (k)
+  "Generate a list of integers from 1 to k"
+  (labels ((iota1 (k1)
+                  (and (>= k1 1)
+                    (cons k1 (iota1 (1- k1))))))
+    (nreverse (iota1 k))))
+\end{verbatim}
+or
+\begin{verbatim}
+(defun iota-1 (k1)
+  "Helper function for iota - generate integers from k1 to 1"
+  (and (>= k1 1)
+      (cons k1 (iota1 (1- k1)))))
+(defun iota (k)
+  "Generate a list of integers from 1 to k"
+  (nreverse (iota-1 k)))
+\end{verbatim}
+
+\end{frame}
+\begin{frame}{To \texttt{labels} or not to \texttt{labels}?}
+  \begin{itemize}
+  \item Standalone function
+    \begin{itemize}
+    \item Easier to write/debug -- and read
+    \item Can be unit tested (e.g.\ with \texttt{rt} in CL)
+    \item Can be traced (in CL) or inspected, as it has a persistent name
+    \item Sometimes the helper needs to be defined before its parent (next slide)
+    \item Safety: the helper cannot access its parent's lexical scope
+    \end{itemize}
+  \item \texttt{labels}
+    \begin{itemize}
+    \item Safety: Can never be called from \texttt{labels}' lexical scope
+    \item Convenience: Helper is in parent's lexical scope
+    \item Fewer standalone functions cluttering our code
+    \item Mutual recursion (adv.\ top.\ section 3)
+    \end{itemize}
+  \end{itemize}
+  The point is that helper functions, if their parameter types are guaranteed, can optimise those checks away (in principle), regardless of whether they are standalone functions or declared with \texttt{labels} (or \texttt{flet}).
+
+  \medskip
+  One approach is to develop as a standalone function, but for smaller functions later embed as \texttt{labels}.
+\end{frame}
+\begin{frame}[fragile]{Interdependency}
+  Lisp is traditionally generous with letting us define functions as we need them:
+\begin{verbatim}
+(defun foo (k)
+  (if (oddp k) (bar k) (+ k 5)))
+\end{verbatim}
+This function will cheerfully run as long as we keep passing it even numbers, even though \texttt{bar} is not defined.  However, some CLs such as SBCL will warn if a function is not defined at read/compile time (SBCL compiles on read).
+
+\medskip
+In turn, we can \emph{stub} \texttt{bar} for now, if it is called rarely (EL version):
+\begin{verbatim}
+(defun bar (n)
+  "FIXME: bar stub"
+  (string-to-number
+    (read-string (format "bar(%d) = ?" n))))
+\end{verbatim}
+  Once we replace \texttt{bar} with its production version, \texttt{foo} automagically calls that instead.
+\end{frame}
+
+
+\begin{frame}[fragile]{Lists -- Assumed Background}
+  We assume you know your cons cells:
+  \begin{itemize}
+  \item The cons cell has a \texttt{car} and \texttt{cdr}
+    \begin{itemize}
+    \item \texttt{(cons 'x 'y)} $\Rightarrow$ \texttt{(x . y)} 
+    \item \texttt{(car '(x . y))} $\Rightarrow$ \texttt{x} 
+    \item \texttt{(cdr '(x . y))} $\Rightarrow$ \texttt{y} 
+    \end{itemize}
+  \item A normal list has the \texttt{car}s pointing to the elements
+    \begin{itemize}
+    \item The \texttt{cdr}s point to the next cons cell
+    \item In particular, the last cell's \texttt{cdr} is \texttt{nil}
+    \end{itemize}
+  \item The \emph{dot} tells the \emph{Reader} the \texttt{cdr} follows:
+    \begin{itemize}
+    \item \texttt{'(2 . nil)} $\Rightarrow$ \texttt{(2)}
+    \item \texttt{'(2 . (a b))} $\Rightarrow$ \texttt{(2 a b)}
+    \item The \emph{Printer} will always choose the most concise (and re-readable) representation
+    \end{itemize}
+  \item A list whose final \texttt{cdr} is not \texttt{nil} is an \emph{improper} list
+    \begin{itemize}
+    \item These are not allowed in iterations (mapping, recursion) as we almost always test whether the \texttt{cdr} is \texttt{nil} to stop
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: lookup}
+  Lisp has powerful types built in, that Inferior Languages™ need to pull in from (usually standard) libraries.
+
+  \medskip
+While Lisp has hash tables for key/value lookup, in simple cases lists will do perfectly well and have a long history.  The \emph{alist} (short for association list) is a standard type in Lisp, yet constructed from standard conses:
+\begin{verbatim}
+(let ((dict '((a . 1) (b . 2) (c . 3))))
+  (list (assoc 'b dict) (rassoc 3 dict) (assoc 'f dict)))
+((b . 2) (c . 3) nil)
+\end{verbatim}
+You have to do \texttt{(cdr (assoc ...))} to get the value, or a \texttt{(car (rassoc ...))} for the reverse lookup; both return the full cons cell.  Meditation: why is this the better choice (next slide)?
+
+If you are not using \texttt{rassoc}, the key/value does not have to be a dotted pair.
+
+\begin{verbatim}
+(let ((dict '((a 1 2) (b 2 y) (c . 3))))
+  (assoc 'b dict))
+(b 2 y)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: lookup}
+  ... answering the meditations from the previous slide:
+
+1. We may want to know what the key was:
+\begin{verbatim}
+(let ((dict '((1 . a) (2 . b) (3 . c))))
+  (assoc-if #'evenp dict))
+(2 . b)
+\end{verbatim}
+\medskip
+2. or we may wish to modify the value after the lookup:
+\begin{verbatim}
+(let* ((dict '((1 . a) (2 . b) (3 . c)))
+       (val (assoc-if #'evenp dict)))
+  (when val (rplacd val 'z))
+  dict)
+((1 . a) (2 . z) (3 . c))
+\end{verbatim}
+\medskip
+3. or distinguish looking up value \texttt{nil} vs entry doesn't exist:
+\begin{verbatim}
+(let ((dict '((1 . a) (2 . nil) (3 . fred))))
+  (list (assoc 2 dict) (assoc 'biff dict)))
+((2) nil)           ; (2) is (2 . nil)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: lookup}
+For modifying the alist, this would also have worked and is a more ``modern'' version of achieving the same goal:
+\begin{verbatim}
+(let* ((dict '((1 . a) (2 . b) (3 . c))))
+  (setf (cdr (assoc-if #'evenp dict)) 'z)
+  dict)
+((1 . a) (2 . z) (3 . c))
+\end{verbatim}
+(note it will change only the \emph{first} entry with an even key) but has the obvious disadvantage that it will explode if the lookup fails (ie.\ it doesn't ``autovivify'' in Perl-speak).
+
+\medskip
+In contrast, hashes \emph{do} autovivify:
+\begin{verbatim}
+(let ((y (make-hash-table :test #'equal))) ; empty
+  (setf (gethash "mimsy" y) 'blop)
+  (gethash "mimsy" y))
+blop
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: lookup}
+\texttt{(acons key val dict)} is short for \texttt{(cons (cons key val) dict)}.
+
+\medskip
+  To add-or-update an entry, we can simply \texttt{acons} the new entry in front (it will always match before the entry it supersedes).
+
+  \medskip
+  This add-to-front is a useful feature of alists:
+\begin{verbatim}
+(flet ((lookup-a (g)
+                 "Find entry associated with 'a"
+                 (cdr (assoc 'a g))))
+  (let ((dict '((a . 1) (b . 2) (c . 3))))
+    (list (lookup-a dict)
+          (lookup-a (acons 'a 7 dict))
+          (lookup-a dict))))
+(1 7 1)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: lookup}
+There is even a multiplayer version of \texttt{acons} called \texttt{pairlis}: 
+
+\begin{verbatim}
+(flet ((lookup-a (g)
+                 "Find entry associated with 'a"
+                 (cdr (assoc 'a g))))
+  (let ((dict '((a . 1) (b . 2) (c . 3))))
+    (list (lookup-a dict)
+          (lookup-a (pairlis '(c a) '(12 13) dict))
+          (lookup-a dict))))
+(1 13 1)
+\end{verbatim}
+
+\texttt{pairlis} takes a list of (distinct) keys (which may shadow those in the alist as above) and a list of the corresponding values and returns the alist with those added to the front.
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: lookup}
+This is potentially useful/interesting because Emacs uses alists -- for example, several alists help select the major mode:
+\begin{verbatim}
+(length auto-mode-alist)
+266
+(push (cons "\\.R$" 'text-mode) auto-mode-alist)
+(find-file "foo.R") ; opens in text mode
+(pop auto-mode-alist)
+(find-file "bar.R") ; back to R mode
+\end{verbatim}
+This makes it possible to temporarily override a lookup, although this code is not functional like on the previous slide, as we need to override a system variable (in Advanced Topics section 6, we shall look at a more functional approach)
+
+\medskip
+Exercise: how would we ``pop'' if the cell is not the first?  If the key is \texttt{b} and the alist is \texttt{((a . 1) (b . 2) (b . 3))}, we want to remove the \texttt{b} $\Rightarrow$ \texttt{2} lookup so we get \texttt{b} $\Rightarrow$ \texttt{3}.
+You may (must) modify the alist.  There is more than one solution.
+\end{frame}
+
+
+
+\begin{frame}[fragile]{More Standard Types with Lists: sets}
+Lists can also be used as \emph{trees} and \emph{sets}.  We show the latter (though these slides contain lots of examples of trees):
+\begin{verbatim}
+(let ((y (list 1 2 3 4 3 1 5 2)))
+  (delete-duplicates y))
+(4 3 1 5 2)
+\end{verbatim}
+(as ever, delete- is the destructive version, remove- creates a fresh list with the result)
+\begin{verbatim}
+(let ((x '(1 2 3 4)) (y '(2 4 6 8)))
+  (intersection x y))
+(4 2)
+(let ((x '(1 2 3 4)) (y '(2 4 6 8)))
+  (union x y))
+(8 6 1 2 3 4)
+(let ((x '(1 2 3 4)) (y '(2 4 6 8)))
+  (set-difference x y))
+(1 3)
+\end{verbatim}
+These have $n$ versions if altering their arguments is allowed.
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: sets and lookup}
+Depending on what your set/dict elements are, you may need to specify the test function:
+\begin{verbatim}
+(let ((dict '(("abc" . 1) ("def" . 2))))
+  (assoc "abc" dict))
+("abc" . 1)
+\end{verbatim}
+In EL, the default test function for \texttt{assoc} is \texttt{equal} but a test function can be passed in as a third argument.  In CL, the situation is different as it uses \texttt{eql} by default:
+\begin{verbatim}
+(let ((dict '(("abc" . 1) ("def" . 2))))
+  (assoc "abc" dict))
+NIL
+(eql "abc" "abc")
+NIL
+(let ((dict '(("abc" . 1) ("def" . 2))))
+  (assoc "abc" dict :test #'equal))
+("abc" . 1)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: sets and lookup}
+Caution: because the default test function for the set functions is not \texttt{equal} even in EL:
+\begin{verbatim}
+(remove-duplicates '("abc" "def" "abc" "def" "ghi"))
+("abc" "def" "abc" "def" "ghi")
+(remove-duplicates '("abc" "def" "abc" "def" "ghi")
+  :test #'equal)
+("abc" "def" "ghi")
+\end{verbatim}
+\texttt{remove-duplicates} was defined in the \texttt{cl} package, so it implements the interface of its CL equivalent (including the \texttt{:test} keyword).  This is unlike \texttt{assoc} which is from the core EL, so is different from the CL version.
+
+\medskip
+Exercise: write \texttt{remove-duplicates} using (1) recursion and (2) mapping.  It should take an equality test function as an optional parameter (extra credit: use the \texttt{:test} keyword)
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: sets and lookup}
+Using alists, we can revisit last talk's exercise that used
+\begin{verbatim}
+(search m "JanFebMarAprMayJunJulAugSepOctNovDec")
+\end{verbatim}
+and replace the lookup with an alist:
+\begin{verbatim}
+(defun month-number (m)
+  (cdr (assoc m '(("Jan" . 1) ("Feb" . 2) ...))))
+\end{verbatim}
+but in CL, the \texttt{assoc} needs a \texttt{:test \#'equal}.
+
+\medskip
+This implementation has additional advantages:
+\begin{itemize}
+\item It does not return valid results for nonsense strings like \texttt{"anF"}
+\item It needs no extra calculations (\texttt{(1+ (floor ... 3))})
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Digression: which is faster?}
+Quick test macro (meditation: why does it have to be a macro?) (code in the reference uses \texttt{gensym}s) (and it's EL only)
+\begin{verbatim}
+(defmacro exec-time (expr)
+  `(let ((t1 (current-time)))
+     (cons ,expr
+           (let ((t2 (current-time)))
+             (time-subtract t2 t1)))))
+exec-time
+(exec-time (+ 2 3))
+(5 0 0 1 272000)
+\end{verbatim}
+It returns its result followed by timing data (which we could tidy up)
+
+\medskip
+Full code available at \url{https://github.com/jjensenral/functional/blob/main/code/month.el}
+\end{frame}
+
+\begin{frame}{Digression: which is faster?}
+  Results of 10,000 tests (run on the author's old slow laptop):
+
+  \medskip
+\begin{tabular}{|l|c|c|c|}
+  \hline
+  Months are & Lookup & Time (ms) & Rank \\
+  \hline\hline
+  Strings & \texttt{search} & 966 & 6 \\
+  Strings & \texttt{assoc} & 68 & 5 \\
+  Strings & \texttt{gethash} & 66 & 4 \\
+  Strings & \texttt{position} & 28 & 2 \\
+  Symbols & \texttt{assoc} & 65 & 3 \\
+  Symbols & \texttt{position} & 18 & 1 \\
+  \hline
+\end{tabular}
+
+\medskip
+We can see the search method (from Talk 2) has the worst performance, and symbols generally do better than strings, as we would expect -- symbols are atoms, strings are sequences.
+\end{frame}
+
+\begin{frame}[fragile]{More Standard Types with Lists: queues}
+  Lists can \texttt{push} and \texttt{pop} at the front but not naturally at the back.  How would we implement a queue (FIFO)?  Could we implement a dequeue?
+
+  \medskip
+  Lists can be used to implement an efficient FIFO:
+  \resizebox{\linewidth}{!}{
+    \includegraphics{queue.pdf}
+  }
+
+  \medskip
+  \begin{itemize}
+  \item Meditation: why is the \texttt{car} of the top cons pointing to the tail and not the \texttt{cdr}?
+  \item Exercise: construct such a FIFO from any list
+  \item Exercise: How do we implement enqueue/dequeue?
+  \item Exercise: Can we implement a dequeue (push/pop at both ends)?
+  \end{itemize}
+\end{frame}
+
+
+\begin{frame}[fragile]{Non-standard Types with Lists}
+1. Improper lists: \texttt{(a b . c)}
+
+2. Shared list structure:
+\begin{verbatim}
+(let* ((base '((a . 2) (b . 3)))
+       (l1 (acons 'c 3 base))
+       (l2 (acons 'd 4 base)))
+  (list l1 l2))
+(((c . 3) (a . 2) (b . 3)) ((d . 4) (a . 2) (b . 3)))
+\end{verbatim}
+
+\medskip
+3. Infinite lists:
+\begin{verbatim}
+(let ((w (list 1 2 3 4)))
+  (rplacd (last w) w)
+  w)
+(1 2 3 4 1 2 3 4 1 2 . #5)
+\end{verbatim}
+
+Emacs saves the day by abbreviating the output (cf.\ Adv Top.~6, 10).  You can even ask the \emph{Reader} to create the list:
+\begin{verbatim}
+'#1=(a b c d . #1#)
+(a b c d a b c d a b . #5)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Naming and Abstractions}
+To write clean production code, it may be useful to introduce abstractions.  As a simple example, let us return to the \emph{pair} using a \texttt{cons}, like we had in our \emph{alists} earlier:
+\begin{verbatim}
+(defun make-pair (x y) (cons x y))
+(defun pair-first (p) (car x))
+(defun pair-second (p) (cdr x))
+\end{verbatim}
+The naming used here is consistent with Lisp \emph{structures} except for the absence of keywords in the lambda list (see next slide).
+\end{frame}
+\begin{frame}[fragile]{Naming and Abstractions}
+Using structures instead, we get more bang for the buck:
+\begin{verbatim}
+(defstruct pair first second)
+pair
+(make-pair :first 'a :second 'b)
+#s(pair a b)
+(pair-first #s(pair a b))
+a
+(copy-pair #s(pair a b))
+#s(pair a b)
+(make-pair :second 'bar :first 'foo)
+#s(pair foo bar)
+\end{verbatim}
+\emph{Structures} automatically define a \emph{constructor} and the \texttt{\#s} \emph{reader macro}, a \emph{copier}, and \emph{accessors} for every slot.
+
+Notice the use of \emph{keywords} in the constructor.
+\end{frame}
+\begin{frame}[fragile]{Digression: Compatibility notes: Lambda Lists}
+EL does not support full CL lambda lists, so this is CL:
+\begin{verbatim}
+(defun make-pair (&key first second) (cons first second))
+(make-pair :second 2 :first 1)
+(1 . 2)
+\end{verbatim}
+In EL we could fudge this with
+\begin{verbatim}
+(defun make-pair (key1 x key2 y)
+  (unless (and (eq key1 :first) (eq key2 :second))
+    (error "Invalid keywords"))
+  (cons x y))
+(make-pair :first 1 :second 2)
+(1 . 2)
+\end{verbatim}
+though it would still rely on \texttt{:first} being first; fixing this is left as an exercise to the reader/listener (what if there were 3 keywords?).
+
+\medskip
+EL supports \texttt{\&optional} (but default is always nil, and there is no supplied-p) and \texttt{\&rest}.
+\end{frame}
+
+
+
+\begin{frame}[fragile]{Naming and Abstractions}
+We can then write auxiliary functions which do not need to know how the pair was implemented (this one is using the struct but it could have worked with the cons (keywords version)):
+\begin{verbatim}
+(defun zip-pairs (list1 list2)
+  (if (and list1 list2)
+      (cons (make-pair :first (first list1)
+                       :second (first list2))
+            (zip-pairs (rest list1) (rest list2)))
+    nil))
+zip-pairs
+(zip-pairs '(a b c) '(1 2 3))
+(#s(pair a 1) #s(pair b 2) #s(pair c 3))
+\end{verbatim}
+This is like python's ``zip'' (not to be confused with CMUCL's python which predates python).  Of course in CL, one would not bother with such trivialities, but merely write \texttt{(mapcar \#'cons list1 list2)} or \texttt{(pairlis list1 list2 nil)}.
+\end{frame}
+\begin{frame}[fragile]{Naming and Abstractions -- Summary}
+
+Arguably the pair is a quite natural fit to \texttt{cons}; but when implementing \emph{trees} using native Lisp types, it may help to have an abstraction, because there is more than one way to do it and the choice may depend on how the tree is used.
+  
+\begin{itemize}
+
+\item The \emph{disadvantage} of the abstraction is the extra function call
+  \begin{itemize}
+  \item Although CL at least can \emph{inline} functions, or optimise the extra call away.
+  \item And also writing more code; inlining doesn't help with that...
+  \item Though CL's built in generator might, theoretically (\texttt{\#.} reader macro)
+  \item Possibly less optimisation across functions than inside one?
+  \end{itemize}
+\item Norvig's PAIP is a good place to look for Useful Code using clean abstractions (in CL, not EL);
+\item Abstractions can also introduce extra \emph{type checks} during development, or \emph{stubs} for complicated stuff;
+\item While EL is more limited, CL has a very powerful type system which can implement checks (adv.\ top.\ sec.~7)
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}{Summary - the Lisp superpowertools}
+  Summarising the Lisp functional programming Super Power Power Tools we have met (plus one from an earlier talk):
+  \begin{itemize}
+  \item \emph{Recursion}, the elegant engine of functional programming;
+  \item \texttt{list} and list tools, designed for the first/rest paradigm;
+  \item \texttt{cond} and friends for dividing and conquering;
+  \item Mapping functions (and \texttt{reduce}) implement functional patterns concisely (including recursion, without recursing)
+  \item Sequence functions including \texttt{reduce}
+  \item Functions: \texttt{funcall}, \texttt{lambda}, \texttt{apply}; multivalued in CL
+  \item \texttt{lambda} lists in Lisp are much more powerful than other functional languages -- more powerful than other languages;
+  \item \texttt{flet} and \texttt{labels} for defining local functions;
+  \item \emph{macros}, because Lisp macros are superpowertools for everything
+  \item \emph{stubs}, and \texttt{trace} (the latter CL only)
+  \end{itemize}
+\end{frame}
+
+\section{Advanced(ish) Functional Programming}
+\begin{frame}{Topics for Future Talks}
+\label{sec:org95ddb74}
+
+\begin{enumerate}
+\item Lambda (anonymous (unnamed) functions) and \emph{currying}
+\item List comprehension
+\item Functions -- mutually recursive, higher order
+\item Symbols
+\item Tail recursion
+\item Scope and extent (Lisp)
+\item Types and type inference
+\item Branch-on-pattern-matching and guards
+\item Memoisation
+\item Lazy evaluation types
+\item Pipes style composition
+\begin{itemize}
+\item  \(h(g(f(x)))\equiv\texttt{(h (g (f x)))}\equiv{}x\vert{f}\vert{g}\vert{h}\)
+\end{itemize}
+\item Monads: theoretical framework for types and computation
+\item Applied monads: Maybe, Arrays
+\item Bonus section for survivors of MonadLand: Lisp Hacking
+\end{enumerate}
+
+\end{frame}
+
+\end{document}
