@@ -1,0 +1,625 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\usepackage{tabularx}
+\xyoption{pdf}
+\usetheme{default}
+\newcommand\cat[1]{\ensuremath{\mathcal{#1}}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\cdot}{\rightarrow}{#2}}
+\newcommand\tup[1]{\langle #1\rangle}
+\newcommand\id[1]{\mathrm{id}_{#1}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{April 24, 2022}
+\title{Functional Programming 4}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming 4},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline of Talks}
+
+  \begin{itemize}
+    \item Previous talks (talks 1-3):
+    \begin{itemize}
+\item Introibo
+\item Pure Functional Programming Principles
+    \item Mapping
+    \item Labels and naming
+    \item Lists
+    \end{itemize}
+  \item This talk (Talk 4):
+    \begin{itemize}
+    \item Advanced(ish) Topics
+    \end{itemize}
+\item Impure Functional? Side Effects
+\item Category Theory
+\item Categories and Functions
+\item Categories and Computation
+
+  \end{itemize}
+Still written in the author's spare time!
+
+\medskip
+
+Very much a personal perspective, and not following any particular textbook.  Using \emph{meditations} and \emph{exercises} -- solutions to all exercises given during the talks.
+
+\end{frame}
+
+
+\section{Introibo}
+\label{sec:org0edb596}
+
+
+\begin{frame}{Superpowertools -- Lemonodor fame awaits!}
+  Summarising the Lisp functional programming Super Power Power Tools we have met (plus one from an earlier talk):
+  \begin{itemize}
+  \item \emph{Recursion}, the elegant engine of functional programming;
+  \item \texttt{list} and list tools, designed for the first/rest paradigm;
+  \item \texttt{cond} and friends for dividing and conquering;
+  \item Mapping functions (and \texttt{reduce}) implement functional patterns concisely (including recursion, without recursing)
+  \item Sequence functions such as \texttt{reduce}
+  \item Functions: \texttt{funcall}, \texttt{lambda}, \texttt{apply}; multivalued in CL
+  \item \texttt{lambda} lists in Lisp are much more powerful than other functional languages -- more powerful than other languages;
+  \item \texttt{flet} and \texttt{labels} for defining local functions;
+  \item \emph{macros}, because Lisp macros are superpowertools for everything
+  \item \emph{stubs}, and \texttt{trace} (the latter CL only, but see later)
+  \end{itemize}
+\end{frame}
+
+\section{Advanced(ish) Functional Programming}
+\begin{frame}{Common/Advanced(ish) Features of Functional Languages}
+\label{sec:org95ddb74}
+
+\begin{enumerate}
+\item Lambda (anonymous (unnamed) functions) and \emph{currying}
+\item List comprehension
+\item Functions -- mutually recursive, higher order
+\item Symbols
+\item Tail recursion
+\item Scope and extent (Lisp)
+\item Types and type inference
+\item Branch-on-pattern-matching and guards
+\item Memoisation
+\item Lazy evaluation types
+\item Pipes (not the lazy kind) style composition
+\begin{itemize}
+\item  \(h(g(f(x)))\equiv\texttt{(h (g (f x)))}\equiv{}x\vert{f}\vert{g}\vert{h}\)
+\end{itemize}
+\item Monads: theoretical framework for types and computation
+\item Applied monads: Maybe, Arrays
+\item Bonus section for survivors of MonadLand: Lisp Hacking
+\end{enumerate}
+
+\end{frame}
+
+\begin{frame}[fragile]{Common Features of Functional Languages - Currying}
+\begin{itemize}
+\item Currying (binding some but not all function arguments)
+\begin{itemize}
+\item In this example \texttt{+} is curryed, binding its second argument to 2
+\begin{itemize}
+\item (Assuming \texttt{+} is considered as a function of \emph{two} args (which it isn't))
+\end{itemize}
+\item ``Proper'' functional languages like F\# do this more elegantly
+\begin{itemize}
+\item As long as we bind the \emph{first argument}
+\item E.g.\ \texttt{+ 2} would be the function that adds two to something
+\end{itemize}
+\end{itemize}
+\end{itemize}
+
+\begin{verbatim}
+(mapcar (lambda (x) (+ x 2)) '(1 2 3 4))
+(3 4 5 6)
+\end{verbatim}
+
+\begin{itemize}
+\item Hence the \emph{type} notation of a function \(+::\mathrm{int}\rightarrow\mathrm{int}\rightarrow\mathrm{int}\)
+\item After currying the (first) argument, the expr has type \(::\mathrm{int}\rightarrow\mathrm{int}\)
+\item Of course in Lisp, \texttt{\#'+} takes any number of arguments (incl 0)
+\item In talk 2 we had \texttt{(apply \#'mapcar \#'list rows)} where \texttt{apply} effectively curryes \texttt{mapcar} by binding \texttt{\#'list} as its first argument
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Lambdas}
+  Almost but not quite a translation of $\lambda$ calculus.  Taking the Quine
+  \begin{equation*}
+    ((\lambda x. (x x)) (\lambda x. (x x)))
+  \end{equation*}
+  becomes in EL
+\begin{verbatim}
+((lambda (x) (list x x)) (lambda (x) (list x x)))
+((closure (t) (x) (list x x)) (closure (t) (x) (list x x)))
+\end{verbatim}
+which is a Quine if you appreciate that evaluating \texttt{lambda} \texttt{coerce}s the \texttt{lambda} expression into a function
+\begin{verbatim}
+(lambda (v) (+ v 2))
+(closure (t) (v) (+ v 2))
+(coerce (lambda (v) (+ v 2)) 'function)
+(closure (t) (v) (+ v 2))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Lambdas}
+  In CL, functions can return multiple values (including none) but special tools are needed to capture the not-first values:
+\begin{verbatim}
+(floor 12 7)
+1
+5
+(multiple-value-bind (q r) (floor 12 7)
+  (+ (* q 7) r))
+12
+\end{verbatim}
+When not used in a multiple value context, only \texttt{floor}'s first value is used (as in EL where it returns only one value):
+\begin{verbatim}
+(+ (floor 12 7) 3)
+4
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Lambdas}
+Both \texttt{lambda} and \texttt{let} create variable bindings:
+\begin{verbatim}
+((lambda (v)
+  (+ v (let ((v 2)) (* 3 v))))
+  6)
+12
+\end{verbatim}
+\begin{itemize}
+\item The inner \texttt{v} is bound by \texttt{let} to the value 2
+\item The outer \texttt{v} is bound by \texttt{lambda} to the value 6
+\item It's the same symbol \texttt{v} but the inner binding shadows the outer during execution of the \texttt{let}
+\item The outermost parenthesis 
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{List comprehension}
+\emph{List comprehension} is the idea of constructing elements
+$$(f(x,y,\ldots)\vert x\in A, y\in B(x),\ldots)$$
+analogous to how sets are constructed (this is obviously not a precise definition but a it-will-do-for-now expression of the idea).
+
+\medskip
+Arguably, list comprehension for Lisp is \texttt{loop}, even though it looks imperative sometimes:
+\begin{verbatim}
+(loop for i from 1 to 10 collecting (* i i))
+(1 4 9 16 25 36 49 64 81 100)
+\end{verbatim}
+but this could be done with \texttt{iota} functionally.  It can express actions on lists (and vectors) equally naturally:
+\begin{verbatim}
+(loop for a in '(1 2) nconcing
+  (loop for b in '(3 4) collecting (cons a b)))
+((1 . 3) (1 . 4) (2 . 3) (2 . 4))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{List comprehension}
+  Another common case is calling a function (with side effects!) $n$ times, collecting the results (which means we can't just use \texttt{dotimes}):
+\begin{verbatim}
+(loop repeat 10 collect (random 10))
+(4 9 1 2 9 3 8 0 0 8)
+\end{verbatim}
+The alternative could be
+\begin{verbatim}
+(map 'vector (lambda (x) (random 10)) (make-vector 10 0))
+[8 3 3 9 8 6 5 0 5 3]
+\end{verbatim}
+which would have made more sense with CL's \texttt{map-into}
+\begin{verbatim}
+(let ((v (make-array 10)))
+  (map-into v
+    (lambda (x) (declare (ignore x)) (random 10))
+    v))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}{Mutually recursive functions}
+  A puzzle: given a number $N$, create an array of length $2N$ with each of the digits $1,\ldots,N$ occurring precisely twice, such that for every digit $k\in\{1,\ldots,N\}$ there is $k$ digits between the two occurrences of the digit $k$.
+
+  \medskip
+  Example for $N=3$: \texttt{312132}.  Starting digits may be given, e.g.\ starting with \texttt{*1*1**}
+
+  \medskip
+  Solving it functionally, the original design had three functions calling each other -- now we're down to two...
+\end{frame}
+
+
+\begin{frame}{Functions -- Mutually recursive functions}
+  \resizebox{!}{8cm}
+            {
+              \includegraphics{mutual.pdf}
+            }
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+Getting one value out of a deeply nested computation: throw it.
+\begin{verbatim}
+(... (when (goalp state) (throw 'found state)) ...)
+\end{verbatim}
+(for some hypothetical function \texttt{goalp}.)  When we need to collect multiple values, a callback makes sense:
+\begin{verbatim}
+(... (when (goalp state) (funcall cb state)) ...)
+\end{verbatim}
+Later we shall look at other ways of solving the same problem.
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+  Suppose for a moment we want Fibonacci numbers (to which we will also return later), starting with the CL version:
+\begin{verbatim}
+(defun fib (k &optional (a 0) (b 1))
+  (if (zerop k) b
+    (fib (1- k) b (+ a b))))
+FIB
+(fib 10)
+89
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+  In CL we can now do
+\begin{verbatim}
+(trace fib)
+(FIB)
+(fib 5)
+  0: (FIB 5)
+    1: (FIB 4 1 1)
+      2: (FIB 3 1 2)
+        3: (FIB 2 2 3)
+          4: (FIB 1 3 5)
+            5: (FIB 0 5 8)
+            5: FIB returned 8
+          4: FIB returned 8
+        3: FIB returned 8
+      2: FIB returned 8
+    1: FIB returned 8
+  0: FIB returned 8
+8
+(untrace fib)
+T
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+In EL, the \texttt{fib} function could look like this:
+\begin{verbatim}
+(defun fib (k &optional a b)
+  (if (zerop k) (or b 1)
+    (fib (1- k) (or b 1) (+ (or a 0) (or b 1)))))
+fib
+(fib 10)
+89
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+  EL uniquely allows us to alter functions with \emph{advice}:
+\begin{verbatim}
+(defun my-trace (name func args)
+  ;; Enter function
+  (princ (format "%s: %s\n" name args))
+  ;; Call function and remember value
+  (let ((val (apply func args)))
+    ;; Print result
+    (princ (format "%s => %s\n" name val))
+    val))
+(advice-add 'fib :around
+  (lambda (func &rest args) (my-trace 'fib func args))
+  '((name . trace)))
+nil
+\end{verbatim}
+In this respect, advice work quite a lot like methods (specifically, standard method combination) in CLOS
+\end{frame}
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+\begin{verbatim}
+(fib 5)
+fib: (5)
+fib: (4 1 1)
+fib: (3 1 2)
+fib: (2 2 3)
+fib: (1 3 5)
+fib: (0 5 8)
+fib => 8
+fib => 8
+fib => 8
+fib => 8
+fib => 8
+fib => 8
+8
+(advice-remove 'fib 'trace)
+nil
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Hooks and callbacks}
+Emacs uses \emph{hooks} a lot, callbacks called at specific times.  Normal hooks are single function or (more or less) lists of functions to be called without arguments:
+\begin{verbatim}
+text-mode-hook
+(text-mode-hook-identify)
+(add-hook 'text-mode-hook 'auto-fill-mode)
+(auto-fill-mode text-mode-hook-identify)
+c++-mode-hook
+(irony-mode)
+(add-hook 'c++-mode-hook
+  (lambda () (message "Hack and be merry!"))
+  10)
+(irony-mode (closure (t) nil (message "Hack and be merry!")))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Higher order functions}
+\begin{verbatim}
+(defun compose (f g)
+  "Compose two functions calling g first then f"
+  (lambda (&rest data) (funcall f (apply g data))))
+compose
+(funcall (compose #'sqrt #'+) 2 3 4)
+3.0
+(mapcar (compose #'sqrt #'abs) '(-1 -4 9 -16))
+(1.0 2.0 3.0 4.0)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Functions -- Higher order functions}
+The CL standard (ANSI X3J13) has tried to deprecate the \texttt{-if-not} functions in favour of the \texttt{-if}s:
+\begin{verbatim}
+(remove-if-not #'evenp '(1 2 3 4 5 6))
+(2 4 6)
+(remove-if (complement #'evenp) '(1 2 3 4 5 6))
+(2 4 6)
+\end{verbatim}
+The first of these works fine in EL but EL does not have \texttt{complement}.  However, we can easily write it:
+\begin{verbatim}
+(defun complement (func)
+  "Logical complement of a function of any number of args"
+  (lambda (&rest args)
+    (not (apply func args))))
+\end{verbatim}
+Notice that no \texttt{funcall} is required when we use it (why not?)
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+  \emph{Symbols} are one of the important tools of Lisp, as
+  \begin{itemize}
+  \item Names -- of variables, functions, catches, types, structures, classes, etc.
+  \item Enums (eg.\ \texttt{(list 'Jan 'Feb 'Mar ...)})
+  \item Keys for hooks or looking up stuff
+  \item Anywhere else where you need an atom
+  \end{itemize}
+
+What is going on here (this is EL but could be CL with one difference):
+\begin{verbatim}
+(atom nil)
+t
+(eq 'fred 'Fred)
+nil
+(eq 'fred 'fred)
+t
+(eq (make-symbol "fred") (make-symbol "fred"))
+nil
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+  A symbol has precisely three things:
+  \begin{itemize}
+  \item A \emph{name} (or more accurately, a \emph{print name}):
+  \end{itemize}
+\begin{verbatim}
+(symbol-name 'fred)
+"fred"
+(symbol-name (make-symbol "wilma"))
+"wilma"
+\end{verbatim}
+\begin{itemize}
+\item A \emph{package} (sort of, EL doesn't really do packages)
+\item A \emph{property list}:
+\end{itemize}
+\begin{verbatim}
+(symbol-plist 'fred)
+nil
+(symbol-plist 'car)
+(byte-compile byte-compile-one-arg byte-opcode byte-car ...
+... byte-optimizer byte-optimize-predicate
+    side-effect-free t)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+If we take the plist first, it provides key/value lookup.  Each symbol has its own plist.
+\begin{verbatim}
+(get 'fred 'foo)
+nil
+(setf (get 'fred 'foo) 'blemps)
+blemps
+(get 'fred 'foo)
+blemps
+(setf (get 'fred 'bar) 17)
+17
+(symbol-plist 'fred)
+(foo blemps bar 17)
+\end{verbatim}
+It works exactly like an alist except
+\begin{itemize}
+\item for hysterical raisins the structure is different
+\item it returns the value rather than the key/value
+\item it does not normally shadow
+\item it has fewer lookup functions (no equiv of \texttt{assoc-if})
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+Unlike CL, Emacs uses property lists extensively:
+\begin{verbatim}
+(get 'sort 'side-effect-free)
+nil
+(get 'mapcar 'side-effect-free)
+nil
+(get 'cons 'side-effect-free)
+error-free
+(get '+ 'side-effect-free)
+t
+\end{verbatim}
+Keys should normally be symbols, though values need not be
+\begin{verbatim}
+(setf (get 'fred "name") "jones")
+"jones"
+(get 'fred "name")
+nil
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+Removing a key (``tag'') from a plist is slightly different:
+\begin{verbatim}
+(remprop 'fred 'foo)
+t
+(symbol-plist 'fred)
+(bar 17)
+\end{verbatim}
+
+Altering plists of EL's built in functions is not advisable!
+
+\medskip
+There are functions to work directly on plists:
+\begin{verbatim}
+(let ((plist (list 'a 1 'b 2)))
+  (setf (getf plist 'c) 3)
+  (remf plist 'b)
+  plist)
+(c 3 a 1)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+Let's return to the packages.  In simplified terms, a package is a context where symbols can be looked up; when the Reader first reads a symbol it is created:
+\begin{verbatim}
+(eq 'fred 'fred)
+t
+\end{verbatim}
+The same symbol is referenced twice, so obviously \texttt{eq}.  However, a small number of functions and macros create symbols that are \emph{not in any package}, so cannot be looked up again:
+\begin{verbatim}
+(make-symbol "fred")
+fred
+(eq (make-symbol "fred") 'fred)
+nil
+\end{verbatim}
+Here \texttt{'fred} is in the package but \texttt{make-symbol} creates one that isn't, so they can never be \texttt{eq}: effectively, symbols not in the (same) package cannot be \texttt{eq} even if they have the same name.
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+We use this construction to write macros (this is CL from the author's Advent of Code 14/12/2021):
+\begin{verbatim}
+(defmacro incf-list2-entry (list x y delta)
+  "Create or add delta to the entry in list for the pair x y"
+  (let ((bzz (gensym)) (garg (gensym)))
+    `(let* ((,bzz (cons ,x ,y))
+            (,garg (assoc ,bzz ,list :test #'equal)))
+       (if ,garg
+           (incf (cdr ,garg) ,delta)
+           (setf ,list (acons ,bzz ,delta ,list)))
+       ,list)))
+\end{verbatim}
+(For EL code, leave out the \texttt{:test \#'equal}).  Dodgy names apart, the macro is a variation on \texttt{incf} for alists of the form
+\begin{verbatim}
+(((C . B) . 1) ((N . C) . 1) ((N . N) . 1))
+\end{verbatim}
+-- looking up a pair \texttt{(x . y)}, it creates or adds to the pair.
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+The Reader can also create symbols not-in-any-package using Reader macros:
+\begin{verbatim}
+(eq '#:fred 'fred)
+nil
+(eq '#:fred '#:fred)
+nil
+(symbol-name '#:fred)
+"fred"
+\end{verbatim}
+The Reader macro \texttt{\#:} creates a symbol with the same print name but it is in no package; the next time the Reader reads the same characters, a different symbol is created.
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+Since it is created by the Reader (before Eval), we need to use other Reader constructions to reference the symbol (EL code):
+\begin{verbatim}
+(defmacro incf-list2-entry (list x y delta)
+  `(let* ((#1=#:bzz (cons ,x ,y))
+          (#2=#:garg (assoc #1# ,list)))
+       (if #2#
+           (incf (cdr #2#) ,delta)
+           (setf ,list (acons #1# ,delta ,list)))
+       ,list))
+incf-list2-entry
+(let ((mylist (list '((a . b) . 3))))
+  (incf-list2-entry mylist 'a 'b 2))
+(((a . b) . 5))
+(let ((mylist (list '((a . b) . 3))))
+  (incf-list2-entry mylist 'x 'y 17))
+(((x . y) . 17) ((a . b) . 3))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+Now let's return to symbols that \emph{are} in ``the'' package, called \emph{interned} symbols (symbols not in a package are called \emph{uninterned}):
+\begin{verbatim}
+(eq 'fred (intern "fred"))
+t
+(eq (intern "fred") (intern "fred"))
+t
+\end{verbatim}
+
+\medskip
+Symbols are atoms and not sequences; if we really wanted to turn a list of two elements \texttt{(fizz buzz)} into a single symbol \texttt{fizzbuzz}, we'd have to do (EL code)
+\begin{verbatim}
+(defun join-symbols (w)
+  (if (endp (cdr w)) ; 0-1 elt
+      (first w)
+    (intern (concat (symbol-name (first w))
+                    (symbol-name (second w))))))
+join-symbols
+(join-symbols '(fizz buzz))
+fizzbuzz
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Symbols}
+Symbols -- whether interned or not -- have few restrictions on their names: this is a single symbol:
+\begin{verbatim}
+(symbolp 'b^2-4*a*c/2*a)
+t
+\end{verbatim}
+but notice we cannot add parentheses for the denominator as the Reader would start constructing a list.  Likewise, \texttt{1-} is a symbol, the name of the function
+\begin{verbatim}
+(symbol-function #'1-)
+#<subr 1->
+\end{verbatim}
+Also note that in CL (but not in EL), the Reader maps all symbols to upper case:
+\begin{verbatim}
+* (eq 'fred 'FRED)
+T
+* 'fred
+FRED
+\end{verbatim}
+\end{frame}
+
+\end{document}
