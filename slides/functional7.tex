@@ -1,0 +1,759 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\usepackage{tabularx}
+\xyoption{pdf}
+\usetheme{default}
+\newcommand\cat[1]{\ensuremath{\mathcal{#1}}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\cdot}{\rightarrow}{#2}}
+\newcommand\tup[1]{\langle #1\rangle}
+\newcommand\id[1]{\mathrm{id}_{#1}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{April 30, 2023}
+\title{Functional Programming 7}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming 7},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline of Talks}
+
+  \begin{itemize}
+    \item Previous talks (talks 1-3):
+    \begin{itemize}
+\item Introibo
+\item Pure Functional Programming Principles
+    \item Mapping
+    \item Labels and naming
+    \item Lists
+    \end{itemize}
+  \item This talk (Talk 7):
+    \begin{itemize}
+    \item Advanced(ish) Topics (continued)
+    \end{itemize}
+\item Impure Functional? Side Effects
+\item Category Theory
+\item Categories and Functions
+\item Categories and Computation
+
+  \end{itemize}
+Still written in the author's spare time!
+
+\medskip
+
+Very much a personal perspective, and not following any particular textbook.  Using \emph{meditations} and \emph{exercises} -- solutions to all exercises given during the talks.
+
+\end{frame}
+
+
+\section{Introibo}
+\label{sec:org0edb596}
+
+
+\section{Advanced(ish) Functional Programming}
+\begin{frame}{Common/Advanced(ish) Features of Functional Languages}
+\label{sec:org95ddb74}
+
+\begin{enumerate}
+\item Lambda (anonymous (unnamed) functions) and \emph{currying}
+\item List comprehension
+\item Functions -- mutually recursive, higher order
+\item Symbols
+\item Tail recursion
+\item Scope and extent
+\item Types and type inference
+\item Branch-on-pattern-matching and guards
+\item \textbf{Memoisation}
+\item \textbf{Lazy evaluation types}
+\item Pipes (not the lazy kind) style composition
+\begin{itemize}
+\item  \(h(g(f(x)))\equiv\texttt{(h (g (f x)))}\equiv{}x\vert{f}\vert{g}\vert{h}\)
+\end{itemize}
+\item Monads: theoretical framework for types and computation
+\item Applied monads: Maybe, Arrays
+\item Bonus section for survivors of MonadLand: Lisp Hacking
+\end{enumerate}
+
+\end{frame}
+
+\begin{frame}{Today's talk}
+  is about building on the hard work in Talk 6:
+  \begin{itemize}
+  \item Lexical scope -- specifically closures
+    \begin{itemize}
+    \item Indefinite extent
+    \end{itemize}
+  \item ``Dynamic scope''
+    \begin{itemize}
+    \item Indefinite scope
+    \item Dynamic extent
+    \end{itemize}
+  \end{itemize}
+  Today we will be relying on closures (``lexical bindings'') to maintain state of pure functions -- and impure functions.
+
+  A future talk (probably 8) will look at maintaining state in ``dynamically scoped'' variables.
+\end{frame}
+
+\begin{frame}[fragile]{Memoisation}
+The classic example of recursion is Fibonacci numbers (A000045):
+\begin{verbatim}
+(defun fib (k)
+  (let ((call-count 0))
+    (labels ((fib-1 (k1)
+             (incf call-count)
+             (if (<= k1 1) 1
+               (+ (fib-1 (1- k1)) (fib-1 (- k1 2))))))
+      (list (fib-1 k) call-count))))
+(fib 0)
+(1 1)
+(fib 10)
+(89 177)
+(fib 19)
+(6765 13529)
+\end{verbatim}
+Exercise: write the inner function functionally-ly (without \texttt{incf}).  What is the cost?  If you know CL, how can CL do better?
+\end{frame}
+
+\begin{frame}[fragile]{Memoisation}
+Let's make a quick timing macro (this is EL, CL already has one):
+\begin{verbatim}
+(defmacro time (&rest body)
+  "Time the execution of an expression, returning list
+   of value and time"
+  `(let* ((#1=#:start (current-time))
+          (#2=#:result (progn ,@body))
+          (#3=#:time (time-subtract (current-time) #1#)))
+     (list #2# (format-time-string "%M:%S.%6N" #3#))))
+(time (fib 30))
+((1346269 2692537) "00:07.348357")
+\end{verbatim}
+\begin{itemize}
+\item If you have forgotten about \emph{uninterned symbols}, please refer to Talk~4.
+\item The formatter above is designed for absolute time so won't work for one hour or more
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Memoisation}
+Pure functions (without side effects) return the same value every time they are called with the same arguments.
+
+  \medskip
+  Memoisation suggests that for functions that are expensive to calculate, we cache the results.  Typically caches are built with hash tables or vectors.
+\begin{verbatim}
+(let ((cache (make-hash-table :test #'eql)))
+  (defun fib (k)
+    (let ((call-count 0))
+      (labels ((fib-1 (k1)
+                (incf call-count)
+                (if (<= k1 1) 1
+                  (or (gethash k1 cache)
+                     (let ((val (+ (fib-1 (1- k1))
+                                   (fib-1 (- k1 2)))))
+                        (setf (gethash k1 cache) val))))))
+        (list (fib-1 k) call-count)))))
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{Memoisation}
+The cache keeps building:
+\begin{verbatim}
+(fib 1)
+(1 1)
+(fib 10)
+(89 19)
+(fib 20)
+(10946 21)
+(fib 30)
+(1346269 21)
+(fib 30)
+(1346269 1)
+\end{verbatim}
+
+Exercise: how would we cache with a vector?  A vector would work well with the non-negative integer argument to \texttt{fib}, but would need to grow as needed.
+
+(Norvig has a generic memoiser -- we shall return to that later)
+\end{frame}
+
+\begin{frame}[fragile]{Fibonacci numbers -- a functional digression}
+  As a pure or mathematical function, \texttt{fib} -- $f:\mathbb{N}_0\to\mathbb{N}$ -- is defined as
+  \begin{alignat*}{3}
+    f(0)&=1,& \\
+    f(1)&=1,& \\
+    f(k)&=f(k-1)+f(k-2),&\quad k\geq 2
+  \end{alignat*}
+
+  The function is defined recursively, and the cache remembers the values (such as $20\mapsto 10946$) as they are built by calls to the function.  Hence the cache represents \texttt{fib} as a partial function (because the cache is necessarily finite).
+
+  While \texttt{fib} remains a pure function, \emph{calling it changes the function}:
+  \begin{itemize}
+  \item In theoretical terms, the partial function is possibly expanded to be defined on more of the domain;
+  \item In practical terms, the function becomes faster, gradually
+  \end{itemize}
+  Hence evaluation has an effect of mapping (the value of) \texttt{fib} to another value: \texttt{fib}$_h\mapsto$\texttt{fib}$_{h+1}$ (where $h$ is the number of times \texttt{fib} has been called).  For every value $k$ for which \texttt{fib}$_h$ is defined (has cache), \texttt{fib}$_h(k)=$\texttt{fib}$_{h+1}(k)$.
+\end{frame}
+
+\begin{frame}{Memoisation -- a mathematical digression}
+  Digression.  $a_{i+1}=a_i+a_{i-1}$ can be expressed
+  \begin{equation*}
+    \left(\begin{array}{cc} 1 & 1 \\ 1 & 0 
+    \end{array}\right)
+    \left(
+    \begin{array}{c} a_i \\ a_{i-1} 
+    \end{array}
+    \right)
+    =\left(\begin{array}{c}
+    a_{i+1} \\ a_i
+    \end{array}\right)
+  \end{equation*}
+and in the next section (lazy evaluation) we shall use that.  Thus with $a_0=a_1=1$,
+  \begin{equation*}
+    \left(\begin{array}{cc} 1 & 1 \\ 1 & 0 
+    \end{array}\right)^n
+    \left(
+    \begin{array}{c} 1 \\ 1
+    \end{array}
+    \right)
+    =\left(\begin{array}{c}
+    a_{n+1} \\ a_n
+    \end{array}\right)
+  \end{equation*}
+  Taking $\alpha=\frac{1+\sqrt{5}}{2}$ and $\beta=\frac{1-\sqrt{5}}{2}$, we get
+  \begin{equation*}
+    \left(\begin{array}{c}
+      \frac{\alpha}{\sqrt{2+\alpha}} \\
+      \frac{1}{\sqrt{2+\alpha}}
+    \end{array}\right)
+    \text{ and }
+    \left(\begin{array}{c}
+      \frac{\beta}{\sqrt{2+\beta}} \\
+      \frac{1}{\sqrt{2+\beta}}
+    \end{array}\right)
+  \end{equation*}
+    are orthonormal eigenvectors of the matrix corresponding to eigenvalues $\alpha$ and $\beta$, respectively,
+\end{frame}
+
+\begin{frame}{Fibonacci numbers -- a mathematical digression}
+  ... whence for all $n$,
+\begin{equation*}
+  \left(\begin{array}{cc}
+    1 & 1 \\ 1 & 0
+  \end{array}\right)^n
+  =
+  \left(\begin{array}{cc}
+      \frac{\alpha}{\sqrt{2+\alpha}} & \frac{\beta}{\sqrt{2+\beta}} \\
+      \frac{1}{\sqrt{2+\alpha}}   &   \frac{1}{\sqrt{2+\beta}}
+  \end{array}\right)
+  \left(\begin{array}{cc}
+    \alpha^n & 0 \\
+    0 & \beta^n
+  \end{array}\right)
+  \left(\begin{array}{cc}
+      \frac{\alpha}{\sqrt{2+\alpha}} &  \frac{1}{\sqrt{2+\alpha}} \\
+      \frac{\beta}{\sqrt{2+\beta}}   &   \frac{1}{\sqrt{2+\beta}}
+  \end{array}\right)
+\end{equation*}
+Since we are interested only in one of the values, we get
+\begin{equation*}
+  \left(\begin{array}{c} * \\ a_n \end{array}\right)
+  =
+  \left(\begin{array}{cc}
+      * & * \\
+      \frac{1}{\sqrt{2+\alpha}}   &   \frac{1}{\sqrt{2+\beta}}
+  \end{array}\right)
+  \left(\begin{array}{cc}
+    \alpha^n & 0 \\
+    0 & \beta^n
+  \end{array}\right)
+  \left(\begin{array}{cc}
+      \frac{\alpha}{\sqrt{2+\alpha}} &  \frac{1}{\sqrt{2+\alpha}} \\
+      \frac{\beta}{\sqrt{2+\beta}}   &   \frac{1}{\sqrt{2+\beta}}
+  \end{array}\right)
+  \left(\begin{array}{c} 1 \\ 1\end{array}\right)
+\end{equation*}
+(where $*$ means ``don't care'') which reduces to
+\begin{equation*}
+  a_n=\alpha^n\frac{1+\alpha}{2+\alpha}+\beta^n\frac{1+\beta}{2+\beta}
+\end{equation*}
+This is a \emph{closed form} for the Fibonacci numbers.
+\end{frame}
+
+\begin{frame}[fragile]{Fibonacci numbers -- a mathematical digression}
+\begin{verbatim}
+(defconst alpha (/ (+ 1 (sqrt 5)) 2))
+alpha
+(defconst beta (/ (- 1 (sqrt 5)) 2))
+beta
+(defconst alpha-frac (/ (+ alpha 1) (+ alpha 2)))
+alpha-frac
+(defconst beta-frac (/ (+ beta 1) (+ beta 2)))
+beta-frac
+(defun fib (n)
+  (+ (* alpha-frac (expt alpha n))
+     (* beta-frac (expt beta n))))
+fib
+(fib 10)
+89.00000000000003
+(fib 100)
+5.73147844013819e+20
+(fib 0)
+1.0
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Fibonacci numbers -- a mathematical digression}
+We can now compare this implementation to the previous:
+\begin{verbatim}
+(fib 1)
+0.9999999999999999
+(fib 19)
+6765.000000000004
+\end{verbatim}
+We can make two additional improvements to the code:
+\begin{itemize}
+\item Since a rounding error has been introduced, it would make sense to use \texttt{round} on the result
+\item Noticing that $\vert\beta\vert<1$, the contribution of the \texttt{beta} part becomes negligible:
+\end{itemize}
+\begin{verbatim}
+(defun fib (n)
+  (round (* alpha-frac (expt alpha n))))
+(mapcar #'fib '(0 1 2 3 4 5 6 7 8 9 10 11))
+(1 1 2 3 5 8 13 21 34 55 89 144)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Fibonacci numbers -- a functional digression}
+Whether implemented as
+\begin{verbatim}
+(defun fib (k)
+  (round (* alpha-frac (expt alpha k))))
+\end{verbatim}
+(with the constants defined as before) or
+\begin{verbatim}
+(defun fib (k)
+  (labels ((fib-1 (k1)
+      (if (<= k1 1) 1
+         (+ (fib-1 (1- k1)) (fib-1 (- k1 2))))))
+    (fib-1 (1+ k))))
+\end{verbatim}
+these functions return the same value for every \emph{valid} value of \texttt{k} (\texttt{k}$\in\{0,1,...\}$), so, being pure, they are \emph{the same function} (exercise: the statement is only ``mostly true'' -- why?)
+
+Though in practice they have hugely different runtimes -- does theory care?
+\end{frame}
+
+\begin{frame}[fragile]{Lazy evaluation}
+Simple generators: generating an infinite sequence
+\begin{verbatim}
+(defun simple-generator (init step)
+  (let ((w init))
+    (lambda () (prog1 w (setq w (funcall step w))))))
+simple-generator
+(setq m (simple-generator 1 (lambda (k) (ash k 1))))
+(closure ...)
+(funcall m)
+1
+(funcall m)
+2
+(funcall m)
+4
+(funcall m)
+8
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Lazy evaluation}
+Simple generators: generating an infinite sequence
+\begin{verbatim}
+(defun list-generator (lst)
+  (let ((y (copy-seq lst)))
+    (rplacd (last y) y)
+    (lambda () (prog1 (car y) (setq y (cdr y))))))
+list-generator
+(setq n (list-generator '(1 2 3)))
+(closure ...)
+(funcall n)
+1
+(funcall n)
+2
+(funcall n)
+3
+(funcall n)
+1
+(funcall n)
+2
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Lazy evaluation}
+  Back to FizzBuzz:
+\begin{verbatim}
+(defun make-fizzbuzz ()
+  (let ((fizz (list-generator '(nil nil fizz)))
+        (buzz (list-generator '(nil nil nil nil buzz)))
+        (num (simple-generator 1 #'1+)))
+    (lambda ()
+      (tidy-up (funcall fizz) (funcall buzz) (funcall num)))))
+
+(defun tidy-up (f b n)
+  (if (and f b) 'fizzbuzz
+    (or f b n)))
+
+(let ((u (make-fizzbuzz))
+      (v (make-vector 30 0)))
+  (map 'vector (lambda (x) (funcall u)) v))
+[1 2 fizz 4 buzz fizz 7 8 fizz buzz 11 fizz ...]
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- Pipes}
+  For a more sophisticated view of lazy evaluation, we turn to Pipes next.  This is necessarily a very simple invitation to the topic; for more details see [Norvig].
+
+  \medskip
+  The basic idea behind pipes is a pair of a value and a next step which is not evaluated unless (and until) it is needed.  Suppose we want to represent the non-negative integers:
+\begin{verbatim}
+(cons 0 #'1+)
+\end{verbatim}
+Things to note:
+\begin{itemize}
+\item Norvig's implementations are more sophisticated than the one presented here
+\item Norvig's code was written for CL but (given that it works approximately like the code presented here) should work for EL with a few mods
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- Pipes}
+  The pipe would be expanded as needed, one step at a time:
+\begin{verbatim}
+(defun pipe-step (p)
+  (let ((pp (last p)))
+    (rplacd pp (cons (funcall (cdr pp) (car pp)) (cdr pp))))
+  p)
+\end{verbatim}
+and we can call it
+\begin{verbatim}
+(pipe-step (pipe-step (pipe-step (cons 0 #'1+))))
+(0 1 2 3 . 1+)
+\end{verbatim}
+Exercise: write our beloved factorial function using reduce on a pipe (as described here)
+
+\medskip
+Exercise: would it be better to have the step in front?  What would the factorial look like in this case?  Alternatively, use the list-as-FIFO hack to avoid  the $O(n)$ complexity of \texttt{last}.
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+  As a short digression, let's look at a \emph{generator} using \emph{yield}.  We will temporarily switch to another possibly recognisable scripting language.
+
+  \medskip
+  First another helper function:
+\begin{verbatim}
+def isprime(l, k):
+    """ check whether no number in l divides k """
+    for p in l:
+        if k % p == 0:
+            return False
+    return True
+\end{verbatim}
+
+\medskip (This is trial division, a very inefficient implementation but we get to efficiency later)
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+The algorithm -- (Incremental) Trial Division:
+\begin{verbatim}
+def prime():
+    yield 2
+    yield 3
+    primes = []
+    p = 5
+    while True:
+        if isprime(primes, p):
+            yield p
+            primes.insert(0, p)
+        p += 2
+        if isprime(primes, p):
+            yield p
+            primes.insert(0, p)
+        p += 4
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+  The point is the code is generating primes and remembering them; the list of primes is used to test further candidates.
+
+  \medskip
+Generate the first 30,000 primes (and timing it):
+\begin{verbatim}
+gen = prime()
+start = dt.datetime.now()
+for _ in range(30000):
+    e = next(gen)
+delta = dt.datetime.now() - start
+print("{}.{}\n".format(delta.seconds, delta.microseconds))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+Let's do it in CL before we return to EL.  CL doesn't have \emph{yield} because it doesn't really need one.  Instead, we use a \emph{condition} to \emph{signal} the next value:
+\begin{verbatim}
+(define-condition yield ()
+  ((value :reader yield-value :initform nil :type t))
+  (:documentation "condition yielding a value from a generator"))
+\end{verbatim}
+
+\medskip
+Conditions are very powerful and, like in python, can be extended to pass information back to the generator, handle multiple simultaneous generators, etc.  (Errors and warnings are subclasses of conditions)
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+\begin{verbatim}
+(defun make-prime-generator ()
+  (let ((primes nil)
+        (y (make-condition 'yield)))
+    (flet ((isprime (k)
+             (notany (lambda (divisor)
+                       (zerop (mod k divisor))) primes))
+           (yield (k)
+             (setf (slot-value y 'value) k)
+             (signal y)))
+      (lambda ()
+        (yield 2)
+        (yield 3)
+        (let ((p 5))
+          (loop
+            (when (isprime p) (yield p))
+            (incf p 2)
+            (when (isprime p) (yield p))
+            (incf p 4)))))))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+Generating 30,000 primes:
+\begin{verbatim}
+(defun timing (&optional (count 30000))
+  (time
+   (let ((gen (make-prime-generator)))
+     (handler-bind
+         ((yield #'(lambda (c)
+                     (when (zerop (decf count))
+                       (return-from timing
+                          (yield-value c))))))
+       (funcall gen)))))
+\end{verbatim}
+
+\medskip
+Note the subtly different control flow: there is no \emph{next} in this case; the generator keeps running till the gatherer stops it, as opposed to the gatherer asking directly for the next value.
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+  Emacs, too, has a yield:
+\begin{verbatim}
+(require 'generator)
+(iter-defun gen-primes ()
+  (iter-yield 2)
+  (iter-yield 3)
+  (let ((primes nil)
+        (p 5))
+    (flet ((primep (k)
+                   (notany (lambda (x) (zerop (mod k x))) primes)))
+      (loop
+       (when (primep p) (iter-yield p)
+             (push p primes))
+       (setq p (+ p 2))
+       (when (primep p) (iter-yield p)
+             (push p primes))
+       (setq p (+ p 4))))))
+gen-primes
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+\begin{verbatim}
+(let ((y (gen-primes)))
+  (loop repeat 20 collect (iter-next y)))
+(2 3 5 7 11 13 17 19 23 29 31 37 ...)
+\end{verbatim}
+Using the timing macro from earlier and the following wrapper
+\begin{verbatim}
+(defun mkprimes (k)
+  (let ((y (gen-primes)))
+    (decf k)
+    (loop repeat k do (iter-next y))
+    (iter-next y)))
+\end{verbatim}
+which returns the last (the $k$th) prime, we can compare the performance.
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+Results of the timings on the author's famously slow laptop:
+\begin{tabular}{|c|r|r|r|r|}
+  \hline
+  iterations & Highest prime & python yield & CL yield & EL yield \\
+  \hline
+  10,000 & 104,729 & 8.6s & 4.2s & 132s \\
+  30,000 & 350,377 & 86.3s & 42.8s & 1356s \\
+  50,000 & 611,953 & 251.5s & 117.3s & - \\
+  100,000 & 1,299,709 & 1075s & 490.7s & - \\
+  \hline
+\end{tabular}
+
+CL (SBCL) is faster than python which is a bit apples and oranges: python is a scripting language; CL is not.  The EL code is not compiled; the EL compiler doesn't like \texttt{gen-primes}
+
+\medskip
+Remember our algorithm can be improved a lot:
+\begin{itemize}
+\item Only test division up to $\sqrt{p}$
+\item We push larger primes to the front but smaller primes more commonly divide candidates
+\item If we know the upper bound (which we don't, in general), a vector of bools (Sieve of Eratosthenes) may be the quicker option
+\end{itemize}
+Exercise: make it (either version) go faster
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+Digressing again, this code is represented as a Haskell version of Trial Division [O'Neill]:
+\begin{verbatim}
+primes = sieve [2..]
+sieve (p : xs) = p : sieve [x | x <- xs, x 'mod' p > 0]
+\end{verbatim}
+
+Oh no!  It is much shorter than ours!  A literal translation into Lisp (using \texttt{loop} as list comprehension, see Talk~4) becomes
+\begin{verbatim}
+(defun sieve (pxs)
+   (cons (car pxs)
+         (sieve (loop for x in (cdr pxs)
+                      when (> (mod x (car pxs)) 0)
+                        collect x))))
+\end{verbatim}
+except it has an infinite loop and will run out of stack (it's not TRO), and it needs an infinite list of integers (2..) as input.
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- yield}
+  Notice the distinction between yielding and normal closures as the alternative:
+\begin{verbatim}
+(iter-defun gen-primes ()
+  ...
+  (let ((primes nil))
+    (iter-yield something...)))
+\end{verbatim}
+vs the closure (this is pseudocode)
+\begin{verbatim}
+(defun gen-primes ()
+  (let ((primes nil))
+    (lambda () (do-something-with primes)
+               (updatef primes))))
+\end{verbatim}
+
+In a sense yield feels more ``functional'' as it does not have to update its state explicitly.  Though we shall cover functions with state (impure functions?) in the next talk.
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- Series}
+Series are different: they do not have memory of the past that pipes have.  They also won't work in EL without a lot of modification, so we cover them only briefly
+\begin{verbatim}
+(defun fact (k)
+  (declare (type unsigned-byte k))
+  (series:collect-product
+    (series:scan-range :from 1 :upto k)))
+\end{verbatim}
+\texttt{collect-product} is short-hand for reduce using \texttt{*}; it even works for no elements ($0!=1$) since 1 is the identity element for \texttt{*}
+
+\medskip
+In general one needs to be \emph{very} careful when handling (infinite) series: they are lazy, but \emph{any} attempt to print them evaluates them fully.  This includes the REPL and the debugger!
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- Series}
+  A more sophisticated series generates Fibonacci numbers:
+\begin{verbatim}
+(values
+  (series:scan-fn '(values integer integer) ; type
+    (lambda () (values 1 0))                ; init
+    (lambda (x y) (values (+ x y) x))))     ; step
+\end{verbatim}
+
+\medskip
+This works exactly like the $\left(\begin{array}{cc} 1 & 1\\ 1 & 0\end{array}\right)$ we saw earlier, stepping two sequences (corresponding to $a_{n+1}$ and $a_n$) in parallel.
+\medskip
+Note that unlike pipes and (our example) generators, series have no (long term) memory.  Point-to-ponder: how could a series generate primes?
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- Series}
+  Infinite series must be handled like dynamite:
+\begin{verbatim}
+(series:cotruncate
+  (series:scan-fn '(values integer integer)
+    (lambda () (values 1 0))
+    (lambda (x y) (values (+ x y) x)))
+  (series:scan (make-array 20)))
+#Z(1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181 6765)
+#Z(0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+\end{verbatim}
+or they will explode... here, the second sequence is used to ``take 20'' and is ignored when the value is used.
+\end{frame}
+
+\begin{frame}[fragile]{Pipes and Series -- Series}
+And finally, FizzBuzz as a Series:
+\begin{verbatim}
+(defun make-fizzbuzz ()
+  "Return fizzbuzz as a series"
+  (let ((fizz (series:series nil nil 'fizz))
+        (buzz (series:series nil nil nil nil 'buzz))
+        (num (series:scan-range :from 1 :type 'integer)))
+    (series:mapping ((f fizz) (b buzz) (n num))
+                    (if (and f b) 'fizzbuzz (or f b n)))))
+CL-USER> (series:cotruncate (make-fizzbuzz)
+            (series:scan-range :upto 30))
+#Z(1 2 FIZZ 4 BUZZ FIZZ 7 8 FIZZ BUZZ 11 FIZZ 13 14
+FIZZBUZZ 16 17 FIZZ 19 BUZZ FIZZ 22 23 FIZZ BUZZ 26
+FIZZ 28 29 FIZZBUZZ 31)
+#Z(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+20 21 22 23 24 25 26 27 28 29 30)
+\end{verbatim}
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{itemize}
+  \item Pure functions always return the same value given the same argument
+    \begin{itemize}
+    \item Implementations can benefit from caching, particularly if defined recursively
+    \item Closures useful to implement the cache
+    \item The cache \emph{becomes} the function (in some sense)
+    \end{itemize}
+  \item Generators generate the next step in a sequence every time they are called
+    \begin{itemize}
+    \item Lazy -- values generated as needed even in infinite series
+    \item Coroutines (yield) are alternatives to holding state in closures
+    \item Compare calling function ('next') directly with in-Lisp evaluation
+    \item Functionally, they become a sequence $x_0,f(x_0),f(f(x_0)),\ldots$ or $x_i:=f(x_{i-1}),\ i>0$
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{References}
+  \begin{itemize}
+  \item [GLS] Steele, Guy L: \emph{Common Lisp, the Language} (2nd Ed)
+  \item [Norvig], P: \emph{Paradigms of Artificial Intelligence Programming}
+  \item [O'Neill], M E: \emph{The Genuine Sieve of Eratosthenes}, DOI:10.1017/S0956796808007004
+  \item [A000045] https://oeis.org/A000045
+  \end{itemize}
+  
+\end{frame}
+
+
+\end{document}

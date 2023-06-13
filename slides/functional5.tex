@@ -1,0 +1,534 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\usepackage{tabularx}
+\xyoption{pdf}
+\usetheme{default}
+\newcommand\cat[1]{\ensuremath{\mathcal{#1}}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\cdot}{\rightarrow}{#2}}
+\newcommand\tup[1]{\langle #1\rangle}
+\newcommand\id[1]{\mathrm{id}_{#1}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{May 22, 2022}
+\title{Functional Programming 5}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming 5},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline of Talks}
+
+  \begin{enumerate}
+  \item Basics of functional programming
+    \begin{itemize}
+    \item Recursion, dividing problems into sub-cases, immutable variables
+    \end{itemize}
+  \item Mapping
+  \item Lists and conses
+    \begin{itemize}
+    \item Basic structure: helper functions, naming
+    \end{itemize}
+  \item Lambdas, higher order functions
+    \begin{itemize}
+    \item list comprehension
+    \item symbols
+    \end{itemize}
+  \end{enumerate}
+
+Still written in the author's spare time!
+
+Very much a personal perspective, and not following any particular textbook.  Using \emph{meditations} and \emph{exercises} -- solutions to all exercises given during the talks.
+
+\end{frame}
+
+
+\section{Introibo}
+\label{sec:org0edb596}
+
+
+\section{Advanced(ish) Functional Programming}
+\begin{frame}{Common/Advanced(ish) Features of Functional Languages}
+\label{sec:org95ddb74}
+
+\begin{enumerate}
+\item Lambda (anonymous (unnamed) functions) and \emph{currying}
+\item List comprehension
+\item Functions -- mutually recursive, higher order
+\item Symbols
+\item \textbf{Tail recursion}
+\item Scope and extent (Lisp)
+\item \textbf{Types and type inference}
+\item \textbf{Branch-on-pattern-matching and guards}
+\item Memoisation
+\item Lazy evaluation types
+\item Pipes (not the lazy kind) style composition
+\begin{itemize}
+\item  \(h(g(f(x)))\equiv\texttt{(h (g (f x)))}\equiv{}x\vert{f}\vert{g}\vert{h}\)
+\end{itemize}
+\item Monads: theoretical framework for types and computation
+\item Applied monads: Maybe, Arrays
+\item Bonus section for survivors of MonadLand: Lisp Hacking
+\end{enumerate}
+
+\end{frame}
+
+
+
+\begin{frame}[fragile]{TRO 1 (Tail Recursion Optimisation)}
+\label{sec:orgd96bf98}
+\begin{verbatim}
+(disassemble 'fact)
+0	dup	  
+1	constant  0
+2	eqlsign	  
+3	goto-if-nil 1
+6	constant  1
+7	return	  
+8:1	dup	  
+9	constant  fact
+10	stack-ref 2
+11	sub1	  
+12	call	  1
+13	mult	  
+14	return	  
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{TRO 2}
+\label{sec:org52905b9}
+\begin{verbatim}
+(defun fact (k)
+  (if (zerop k) 1 (* k (fact (1- k)))))
+\end{verbatim}
+uses tail recursion but is not optimisable; this one is:
+\begin{verbatim}
+(defun fact (k result)
+  (if (zerop k) result
+    (fact (1- k) (* k result))))
+\end{verbatim}
+
+By the time the function calls itself, the first version has to remember \texttt{(* k ...)}; the second version doesn't need to remember anything.  Compilers can optimise the recursion call away and make it a loop (though it becomes harder to debug as the extra stack frame is missing).
+
+\medskip
+EL does not do \emph{tail recursion optimisation} (TRO) but it is an important technique in functional programming (and some day EL may do it too)
+\end{frame}
+
+\begin{frame}[fragile]{TRO 3}
+\label{sec:org97c2a55}
+
+\texttt{fact} has an extra parameter, so we need to call \texttt{(fact 12 1)}.  Here is \texttt{iota} from before in the same style (note, no \texttt{nreverse} -- meditate on why it is not needed):
+
+\begin{verbatim}
+(defun iota (k result)
+  (if (zerop k) result (iota (1- k) (cons k result))))
+\end{verbatim}
+Notice it generates a list of $1,\ldots,k$; sometimes \texttt{(iota k)} is expected to generate $0,\ldots,k-1$
+
+One way to fix the extra parameter is to make \texttt{result} optional.  Unfortunately, ELisp does not have default values for optional parameters.
+
+\begin{verbatim}
+(defun fact (k &optional result)
+  (if (zerop k) (or result 1)
+    (fact (1- k) (* k (or result 1)))))
+fact
+(fact 12)
+479001600
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{TRO 4}
+\label{sec:orgc4e4ea1}
+
+This would also do the trick, using a local recursive function defined with \texttt{labels} to do the actual work:
+
+\begin{verbatim}
+(defun fact (k)
+  (labels ((fact1 (k result)
+            (if (zerop k) 1 (fact1 (1- k) (* k result)))))
+          (fact1 k 1)))
+\end{verbatim}
+
+Creating a helper function (scoped to the inside of \texttt{fact}) which can call itself recursively (hence using \texttt{labels} instead of \texttt{flet}).  Now \texttt{fact1} is TRO-able and the recursion will be optimised as a loop.
+\end{frame}
+\begin{frame}[fragile]{TRO 5}
+\label{sec:orgc4e4ea1}
+
+Using a wrapper function could also help with type checks:
+
+\begin{verbatim}
+(defun fact (k)
+  (unless (and (integerp k) (>= k 0))
+    (error "Improper argument to fact: %s" k))
+  (labels ((fact1 (k result)
+            (if (zerop k) 1 (fact1 (1- k) (* k result)))))
+          (fact1 k 1)))
+\end{verbatim}
+
+As we have seen before, this takes the check out of the loop.  Previously we used a standalone helper function for \texttt{fact}, but in principle a section of code could have local optimisation parameters (at least in CL), allowing for extra optimisation of the helper function as before.
+
+\end{frame}
+
+\begin{frame}[fragile]{The Same Length Question}
+From Talk 1, a check that all sequences have the same length:
+\begin{verbatim}
+(defun check-same-length (lists)
+  "For a list of sequences, check that they are all the same length"
+  (if (endp (cdr lists))		; zero or one elts
+      t
+    (check-same-length-1 (length (first lists)) (rest lists))))
+(defun check-same-length-1 (len lists)
+  "Helper function for check-same-length: check that all seqs in lists have length len"
+  (cond
+   ((endp lists) t)
+   ((/= (length (first lists)) len) nil)
+   (t (check-same-length-1 len (rest lists)))))
+(check-same-length '((1 2) [2 3] "AB"))
+t
+(check-same-length '((1 2) (2) (3 4)))
+nil
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Types}
+  Meditation: what is the difference between
+\begin{verbatim}
+(defun process-list (k)
+  (if (null k) t
+    (reduce #'bar (map 'list #'foo k))))
+\end{verbatim}
+and
+\begin{verbatim}
+(defun process-list (k)
+  (if (endp k) t
+    (reduce #'bar (map 'list #'foo k))))
+\end{verbatim}
+\medskip
+
+Hint: think of \texttt{(process-list [1 2])}
+\end{frame}
+
+\begin{frame}[fragile]{Types}
+  What about this version?
+\begin{verbatim}
+(defun process-list (k)
+  (declare (type list k))
+  (if (null k) nil
+    (reduce #'bar (map 'list #'foo k))))
+\end{verbatim}
+
+Meditation: What does \texttt{declare} do?  Hint: consider the difference between:
+\begin{itemize}
+\item ELisp checks that the argument is a list when it's passed in
+\item The programmer \emph{promises} that \texttt{k} is a list, and consequences are undefined if it's not
+\item It's a hint to the compiler that what comes in is likely to be a list, and the compiler is free to ignore it
+\item It's like a comment
+\end{itemize}
+Answer: next slide
+\end{frame}
+
+\begin{frame}[fragile]{Types}
+  Types are important for two reasons:
+  \begin{itemize}
+  \item Correctness -- tracking types (at read/compile time) helps ensure that the program is correct
+  \item Performance and optimisation -- the compiler can make optimisations if it knows the specific type (eg.\ of a sequence or sequence element type)
+  \end{itemize}
+  Types can be specified in two ways:
+  \begin{itemize}
+  \item By the programmer.  It is an error if a programmer-specified type does not match.
+    \begin{itemize}
+    \item In CL, the consequences of a type error depend on the circumstances and what the standard/implementation define
+    \end{itemize}
+  \item It can be inferred.
+    \begin{itemize}
+    \item For example, in the sexp \texttt{(+ (floor a 6) (mod b 12))},
+      \begin{itemize}
+      \item \texttt{a} must be an integer, \texttt{(floor a 6)} is an integer
+      \item \texttt{b} must be an integer; \texttt{(mod b 12)} is of type \texttt{(and (integer 0 12) fixnum)} (or similar)
+      \item \texttt{+} can specialise to an integer-only (and only two parameters)
+      \end{itemize}
+    \end{itemize}
+  \end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Types}
+  Functional languages support type inference.  For example, this will not work in ML-based languages:
+\begin{verbatim}
+let a = [2; (3,1); "ada"]
+in ...
+\end{verbatim}
+as the language will try to infer a list-of-something but it sees a number, a pair and a string.
+
+In contrast, Lisp will cheerfully accept
+\begin{verbatim}
+(let ((a '(2 (3 . 1) "ada")))
+  ...)
+\end{verbatim}
+
+Although Emacs's type system is simpler it is worth learning (some of) CL's, partly for understanding functional programming as a paradigm, partly to uderstand Emacs' better.
+  
+\end{frame}
+
+\begin{frame}[fragile]{Types and Inference}
+  In a functional language like F\#, types are inferred (in Linux, run \texttt{fsharpi} to get the interpreter):
+\begin{verbatim}
+> [2;3;4] ;;
+val it : int list = [2; 3; 4]
+\end{verbatim}
+
+Unlike arrays, in Lisp (E or C), we cannot directly specify the elements of a list:
+\begin{verbatim}
+(typep '(2 3 4) 'list)
+t
+\end{verbatim}
+but in CL we can do
+\begin{verbatim}
+(defun intseqp (w) (every #'integerp w))
+INTSEQP
+(typep '(2 3 4) '(and list (satisfies intseqp)))
+T
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Types}
+  In Lisp, everything is part of a type hierarchy:
+  \resizebox{\linewidth}{!}{
+    \includegraphics{types.pdf}
+  }
+
+  This picture illustrates only the more important types.  Note four specialised float types: SBCL provides only two, with \texttt{long} and \texttt{double} being conflated, and \texttt{short} and \texttt{single} conflated.  In EL:
+\begin{verbatim}
+pi
+3.141592653589793
+(type-of pi)
+float
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Types and Inference}
+  In CL, types like \texttt{array} and \texttt{complex} (but not \texttt{list}) are compound types and can optionally specify their element types:
+\begin{verbatim}
+(type-of #(1 2 3))
+(SIMPLE-VECTOR 3)
+(typep #(1 2 3) '(array integer *))
+T
+\end{verbatim}
+The \texttt{array} specifier is specialised with the type of element in the array and the dimensions.  The symbol \texttt{*} may be used as a short-hand for ``anything.''  Similarly, a rank-2 array could be specified with dimensions \texttt{(* *)}:
+\begin{verbatim}
+(typep #2A((1 2) (3 4)) '(array * (* *)))
+T
+\end{verbatim}
+
+\medskip
+Meditation: Note that \texttt{(array t)} is a proper subtype of \texttt{(array *)} -- why?
+
+\end{frame}
+
+\begin{frame}[fragile]{Types -- Generic Programming}
+  Compare this with generic programming where the type is not known (until later):
+\begin{verbatim}
+let list_length x =
+    let rec list_length1 x l =
+        match x with
+            | [] -> l
+            | _ :: x1 -> list_length1 x1 (1+l)
+    in list_length1 x 0
+printfn "%d" (list_length [1;2;3])
+printfn "%d" (list_length ["abra";"ca";"dabra"])
+\end{verbatim}
+The type of \texttt{list\_length} will be \texttt{'a list -> int}, meaning a list of a type \texttt{'a} mapping to an \texttt{int}.
+
+\medskip
+\texttt{map} (in F\#) would have type
+\begin{verbatim}
+('a -> 'b) -> 'a list -> 'b list
+\end{verbatim}
+
+\end{frame}
+\begin{frame}[fragile]{Types -- Generic Programming}
+  Suppose we wanted a list of mixed items: but F\# will refuse the following
+\begin{verbatim}
+[3;"abc"; 1.2]
+\end{verbatim}
+as the elements are three different types.  Instead we use a ``discriminated union'':
+\begin{verbatim}
+type Mixed =
+    | String of string
+    | Int of int
+    | Float of float
+printfn "%d" (list_length [Int 3; String "abc"; Float 1.2])
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Types -- Generic Programming}
+  In C++, the types are managed in exactly the same way:
+\begin{verbatim}
+template<typename X>
+std::size_t
+list_length1(typename std::list<X>::const_iterator list,
+             typename std::list<X>::const_iterator nil,
+             std::size_t count)
+{
+    if(list == nil)
+        return count;
+    return list_length1<X>(++list, nil, 1+count);
+}
+
+template<typename X>
+std::size_t
+list_length(std::list<X> const &list)
+{
+    return list_length1<X>(list.cbegin(), list.cend(), 0);
+}
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]{Types -- Generic Programming}
+  In contrast, Lisp will (unless told otherwise) assume the most generic type:
+  \begin{itemize}
+  \item Lists are always assumed to be lists of \texttt{t}
+  \item Arrays are assumed to be arrays of \texttt{t} (CL: unless spec'd)
+  \end{itemize}
+\begin{verbatim}
+(defun list-length (l)
+  (labels ((list-length1 (l c)
+            (if (endp l) c
+             (list-length1 (cdr l) (1+ c)))))
+    (list-length1 l 0)))
+list-length
+(list-length '(3 "abc" 1.2))
+3
+\end{verbatim}
+  This will happily work with any type (including user-defined types):
+  \begin{itemize}
+  \item The Lisp code is not duplicated for each type, like the C++ code is
+  \item However, (as in C++), specialisations are possible in CLOS (CL only)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Pattern Matching and Guards}
+  A common example in (other) functional language is a sort of generalisation of \texttt{cond} (if such a thing can be imagined) where each case is a \emph{pattern} with an optional \emph{guard} -- this is a contrived example in F\#:
+\begin{verbatim}
+let rec func data sum =
+    match data with
+        | [] -> sum
+        | (a,b) :: rest when a>b -> func rest (sum+a)
+        | (_,b) :: rest -> func rest (sum+b)
+        | _ -> failwith "could not parse data"
+let test = [(3, 1) ; (4,1); (2,3) ; (-1, 2)]
+in printfn "%d" (func test 0)
+\end{verbatim}
+When run, it prints 12.  Meditation: which simple refactoring would improve this function? (answer in a few slides)
+\end{frame}
+
+\begin{frame}[fragile]{Pattern Matching and Guards}
+  The \texttt{Mixed} type from before can be deconstructed similarly:
+\begin{verbatim}
+type Mixed =
+    | Float of float
+    | String of string
+    | Int of int
+
+let explain (elt : Mixed) =
+    match elt with
+        | Float g -> printfn "Float %f" g
+        | String s -> printfn "String %s" s
+        | Int i -> printfn "Int %d" i
+
+List.iter explain [Int 2; Float 2.71828; String "ada"]
+\end{verbatim}
+In Lisp the same effect can be achieved with \texttt{typecase} (which works like \texttt{case} but matches on the type)
+\end{frame}
+
+\begin{frame}[fragile]{Pattern Matching and Guards}
+Lisp has the pattern matching function from macros' lambda lists as a standalone generalisation of \texttt{let}:
+\begin{verbatim}
+(destructuring-bind (a (b . c)) '(2 ((f g . y)))
+  (list a b c))
+(2 (f g . y) nil)
+\end{verbatim}
+This will raise an error:
+\begin{verbatim}
+(destructuring-bind (a (b c)) '(1 2) (list a b c))
+\end{verbatim}
+This means we can use it to bind variables in an expression, but not easily in a negative match.
+
+\end{frame}
+
+\begin{frame}[fragile]{Pattern Matching and Guards}
+  Obviously we could write the function the conventional way (still without the helpful refactoring):
+\begin{verbatim}
+(defun func (data sum)
+  (cond
+   ((endp data) sum)
+   ((> (caar data) (cdar data))
+     (func (rest data) (+ sum (caar data))))
+   ((and (consp (car data)) (atom (cdar data)))
+     (func (rest data) (+ sum (cdar data))))
+   (t (error "Failed to process ~S" data))))
+\end{verbatim}
+That third test is a bit hand-made (it tests for a cons cell).  Things to note:
+\begin{itemize}
+\item Unlike F\#, it doesn't make any bindings in the clauses
+\item It doesn't pattern match in the sense that \texttt{destructuring-bind} does
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Pattern Matching and Guards}
+  Of course we could still write the pattern explicitly:
+\begin{verbatim}
+(cond
+  ((endp data) sum)
+  ((ignore-errors
+      (destructuring-bind (a . b) (first data)) (> a b))
+    (func (rest data) (+ sum a)))
+  ...
+\end{verbatim}
+Here, \texttt{ignore-errors} will return \texttt{nil} if \texttt{destructuring-bind} fails to match; if it \emph{does} match, the value of the test \texttt{(> a b)} is returned.  As before, if the clause is true, the function is called recursively.
+
+\medskip
+In CL's Alexandria library, there is a \texttt{destructuring-case}.  In EL, dash has \texttt{-when-let} (as a clause) and \texttt{-let} can do destructuring.
+\end{frame}
+
+\begin{frame}[fragile]{Pattern Matching and Guards}
+  Here is a cleaner way of handling the problem:
+\begin{verbatim}
+(defun func (sum val)
+  (destructuring-bind (a . b) val
+    (+ sum (if (> a b) a b))))
+func
+(reduce #'func
+  '((3 . 1) (4 . 1) (2 . 3) (-1 . 2))
+  :initial-value 0)
+12
+\end{verbatim}
+\medskip
+Incidentially, \texttt{loop} can also destructure:
+\begin{verbatim}
+(loop for (a . b) in '((3 . 1) (4 . 1) (2 . 3) (-1 . 2))
+      summing (max a b))
+12
+\end{verbatim}
+
+\end{frame}
+\end{document}

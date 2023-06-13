@@ -1,0 +1,802 @@
+% Created 2022-01-16 Sun 11:18
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{xypic}
+\usepackage{tabularx}
+\xyoption{pdf}
+\usetheme{default}
+\newcommand\cat[1]{\ensuremath{\mathcal{#1}}}
+\newcommand\hm[2]{\hom(#1,#2)}
+\newcommand\nat[2]{{#1}\overset{\cdot}{\rightarrow}{#2}}
+\newcommand\tup[1]{\langle #1\rangle}
+\newcommand\id[1]{\mathrm{id}_{#1}}
+\author{jens.jensen@stfc.ac.uk \\0000-0003-4714-184X\\CC-BY 4.0}
+\date{March 5, 2023}
+\title{Functional Programming 6}
+\hypersetup{
+ pdfauthor={jens.jensen@stfc.ac.uk},
+ pdftitle={Functional Programming 6},
+ pdfkeywords={functional, monad, programming theory},
+ pdfsubject={functional programming},
+ pdfcreator={Emacs 27.1 (Org mode 9.3) then by hand}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline of Talks}
+
+  \begin{itemize}
+    \item Previous talks (talks 1-3):
+    \begin{itemize}
+\item Introibo
+\item Pure Functional Programming Principles
+    \item Mapping
+    \item Labels and naming
+    \item Lists
+    \end{itemize}
+  \item This talk (Talk 6):
+    \begin{itemize}
+    \item Advanced(ish) Topics (continued)
+    \end{itemize}
+\item Impure Functional? Side Effects
+\item Category Theory
+\item Categories and Functions
+\item Categories and Computation
+
+  \end{itemize}
+Still written in the author's spare time!
+
+\medskip
+
+Very much a personal perspective, and not following any particular textbook.  Using \emph{meditations} and \emph{exercises} -- solutions to all exercises given during the talks.
+
+\end{frame}
+
+
+\section{Introibo}
+\label{sec:org0edb596}
+
+
+\section{Advanced(ish) Functional Programming}
+\begin{frame}{Common/Advanced(ish) Features of Functional Languages}
+\label{sec:org95ddb74}
+
+\begin{enumerate}
+\item Lambda (anonymous (unnamed) functions) and \emph{currying}
+\item List comprehension
+\item Functions -- mutually recursive, higher order
+\item Symbols
+\item Tail recursion
+\item \textbf{Closures: scope and extent}
+\item Types and type inference
+\item Branch-on-pattern-matching and guards
+\item Memoisation
+\item Lazy evaluation types
+\item Pipes (not the lazy kind) style composition
+\begin{itemize}
+\item  \(h(g(f(x)))\equiv\texttt{(h (g (f x)))}\equiv{}x\vert{f}\vert{g}\vert{h}\)
+\end{itemize}
+\item Monads: theoretical framework for types and computation
+\item Applied monads: Maybe, Arrays
+\item Bonus section for survivors of MonadLand: Lisp Hacking
+\end{enumerate}
+
+\end{frame}
+
+\begin{frame}[fragile]{Back to basics: what is a closure?}
+\begin{verbatim}
+(let ((a 1) (b 0))
+  (defun fib ()
+    (psetq a b b (+ b a))
+    b))
+fib
+(fib)
+1
+(fib)
+1
+(fib)
+2
+(fib)
+3
+(fib)
+5
+(fib)
+8
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Back to basics: what is a closure?}
+\begin{verbatim}
+(let ((a 1) (b 0))
+\end{verbatim}
+\begin{itemize}
+\item \texttt{a} and \texttt{b} are declared locally, initialised to a pre-step of Fibonacci (OEIS A000045)
+\end{itemize}
+\begin{verbatim}
+  (defun fib ()
+\end{verbatim}
+\begin{itemize}
+\item The function \texttt{fib} is declared \emph{inside} the \texttt{let} (not at the top-level)
+\end{itemize}
+\begin{verbatim}
+    (psetq a b b (+ b a))
+    b))
+\end{verbatim}
+\begin{itemize}
+\item A single step is performed in Fibonacci with value in \texttt{b}
+\item The function remembers its place in the sequence
+\item Though \texttt{a} and \texttt{b} are no longer accessible (only through \texttt{fib}), they persist (as long as \texttt{fib} exists)
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Fibonacci generator, OOP version}
+\begin{verbatim}
+; SLIME 2.27
+CL-USER> (defclass fib-gen ()
+           ((a :initform 1 :type unsigned-byte)
+            (b :initform 0 :type unsigned-byte))
+           (:documentation "Fibonacci generator class"))
+#<STANDARD-CLASS COMMON-LISP-USER::FIB-GEN>
+CL-USER> (defgeneric next (obj)
+           (:method ((obj fib-gen))
+             (with-slots (a b) obj
+               (shiftf a b (+ a b))
+               b)))
+#<STANDARD-GENERIC-FUNCTION COMMON-LISP-USER::NEXT (1)>
+CL-USER> (let ((o (make-instance 'fib-gen)))
+           (list (next o) (next o) (next o) (next o)))
+(1 1 2 3)
+CL-USER>
+\end{verbatim}
+\end{frame}
+\begin{frame}{Disclaimer}
+
+  (The rest of) this talk is about scope and extent, and will be quite technical.  It will (hopefully) tie up some loose ends from previous talks and lay a foundation for topics in future talks.
+
+  \medskip
+  Suggested answers to exercises at the end
+\end{frame}
+  
+\begin{frame}[fragile]{Scope and Extent}
+  Quick reminder about the differences between \emph{bindings} and \emph{assignment}.
+
+  \medskip
+  Assignments (modifying a value) are usually made with \texttt{setq} or \texttt{setf} (and avoided as a matter of principle in Functional Programming); it overwrites the value held by the variable.  \texttt{makunbound} removes the value, though the \emph{symbol} still exists.
+
+\begin{verbatim}
+(let ((a 4))
+  (let ((a 3) (b a) c)
+    (makunbound 'a)
+    (unless (boundp 'b) (list a b c))))
+(3 4 nil)
+\end{verbatim}
+
+There is something Interesting™ going on: all variables are in fact bound (\texttt{c} to \texttt{nil}), but only within the \texttt{let} construct, not globally (which is where \texttt{boundp} looks): we shall investigate in this section.
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  As preparation, let us zoom in on the RE parts of the REPL of a simple expression:
+\begin{verbatim}
+(func foo)
+\end{verbatim}
+In fact, we shall zoom in on the variable part (the function part being similar).
+\begin{itemize}
+\item We assume \texttt{foo} names a variable
+\item We assume \texttt{func} names a function
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+\textbf{Step 0:} The Reader reads the parentheses and two symbols, \texttt{func} and \texttt{foo} and constructs a list containing these two symbols.
+\begin{verbatim}
+(list (intern "func") (intern "foo"))
+\end{verbatim}
+\begin{itemize}
+\item The happens at read-time; if running interactively, it will be read after we hit return
+\item Note that the Reader is not allowed to use \texttt{make-symbol} (here), why not?
+\item The Reader creates the symbols \texttt{func} and \texttt{foo} (CL: in the current Package) if they do not already exist
+  \begin{itemize}
+  \item Initially, the symbols are \emph{unbound}
+  \end{itemize}
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+\textbf{Step 1:} (Evaluate) The symbol \texttt{foo} is looked up as a \emph{reference} to a variable
+\begin{verbatim}
+foo
+\end{verbatim}
+\begin{itemize}
+\item For Lisp2s, \texttt{foo} is looked up in the variable namespace (in the current package)
+  \begin{itemize}
+  \item \texttt{func} is looked up in the function namespace
+  \item There may be type restrictions on \texttt{foo} (Section~7)
+  \end{itemize}
+\item The name is looked up in the appropriate context:
+  \begin{itemize}
+  \item The variable may be unbound
+  \item The variable may be bound locally (with \texttt{let})
+  \item There may be a ``global'' value (to be defined shortly)
+  \end{itemize}
+
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+\textbf{Step 2:} The \emph{bindings} of \texttt{foo} are looked up in the appropriate context (local/global), the \emph{innermost} binding is found
+\begin{verbatim}
+(let ((foo 7))
+  (let ((foo 'a))
+    (func foo)))
+\end{verbatim}
+\begin{itemize}
+\item The variable may be unbound (have no binding) -- which would be an error
+\item The innermost binding is often the most recently established
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+\textbf{Step 3:} If the binding has a \emph{value} -- an object -- it is returned and passed to \texttt{func} as an argument
+\begin{verbatim}
+(func 'a)
+\end{verbatim}
+\begin{itemize}
+\item A (lexical) binding will always have a value: 
+  \begin{itemize}
+  \item It is not possible to create a (lexical) binding that does not have a value
+  \item It is not possible to remove the value from a (lexical) binding:
+  \item \texttt{makunbound} has no effect whatsoever
+  \item \texttt{setq} must assign it a value
+  \end{itemize}
+\item However, there are \emph{dynamic} bindings, too (which \emph{can} be unbound): we shall examine these shortly
+\item And constants, of course, always have values
+  \begin{itemize}
+  \item System constants (like \texttt{pi} or \texttt{nil} or \texttt{long-float-negative-epsilon}) may not be changed (assigned to, or bound)
+  \item User-defined constants may grudgingly be redefined
+  \end{itemize}
+\item \emph{Inside} the function, the value is bound to the parameter in the function's lambda list
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+\textbf{Step 4:} Bind the function's arguments
+\begin{verbatim}
+(defun func (x) (list x x))
+\end{verbatim}
+
+When the Evaluator calls the function, it creates a lexical binding of the function's parameter(s) to its argument(s).
+
+Once the binding(s) are created, the function's body is evaluated as if it were
+
+\begin{verbatim}
+(let ((x 'a))
+  (list x x))
+\end{verbatim}
+
+Obviously, if there is an outer (prior) binding of \texttt{x}, it is shadowed.  Notice the same effect is achieved by
+
+\begin{verbatim}
+((lambda (x) (list x x)) 'a)
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  Suppose we are writing a program to solve problems in integer arithmetic (we assume we have \texttt{egcd}, given $a,b$ it finds $x,y$ s.t.\ $ax+by=\mathrm{gcd}(a,b)$):
+\begin{verbatim}
+(defun mod-inv (m k)
+  "Invert k mod m (if m k coprime)"
+  (let ((a (first (egcd x m))))
+    (if (minusp a) (+ a m) a)))
+(defun mod-* (m a b)
+  "Multiply a and b mod m"
+  (mod (* a b) m))
+(defun mod-/ (m a b)
+  "Divide a by b mod m"
+  (mod-* m a (mod-inv m b)))
+(defun coprimep (x y)
+  "Determine whether two integers are co-prime"
+  (= 1 (gcd x y)))
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+If the modulus is constant (known at compile time), it would make
+sense to curry all the arithmetic functions:
+\begin{verbatim}
+(defconst +mod+ 17 "common modulus")
+(defun mod-inv (k)
+  "Invert k mod +mod+ (if +mod+ k coprime)"
+  (let ((a (first (egcd x +mod+))))
+    (if (minusp a) (+ a +mod+) a)))
+(defun mod-* (a b)
+  "Multiply a and b mod +mod+"
+  (mod (* a b) +mod+))
+(defun mod-/ (a b)
+  "Divide a by b mod +mod+"
+  (mod-* +mod+ a (mod-inv b)))
+\end{verbatim}
+In CL, constants would be defined by \texttt{defconstant}
+
+Note $\pi$ is called \texttt{pi}, not \texttt{+pi+}; similarly for other built-in constants like \texttt{most-negative-fixnum}
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  CL distinguishes between
+  \begin{itemize}
+  \item Constants -- should not be changed by user or program
+  \item Parameters given to the program (but unchanged by the program) (\texttt{defparameter})
+  \item ``Local'' variables (and functions)
+  \item ``Global'' functions (and variables)
+  \end{itemize}
+  It is considered bad practice to just \texttt{setq} a variable into existence (though EL permits it); instead, \texttt{defvar} should be used:
+\begin{verbatim}
+(defvar *dims* '(2 3 3) "Dimensions of data array")
+\end{verbatim}
+This is analogous to \texttt{defun} for creating (global) functions (more or less), where \texttt{flet} is the function analogue to \texttt{let} for creating local (lexical) functions/variables.
+
+Apart from encouraging a documentation string, variables introduced with \texttt{defvar} have special magic...
+\begin{verbatim}
+(special-variable-p 'auto-mode-alist)
+t
+\end{verbatim}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  If the modulus is constant-ish -- it can be changed by the user or the program but is the same across calls to all of the modulus functions (it would usually not make sense mathematically if it weren't) -- it can be declared globally:
+\begin{verbatim}
+(defvar *mod* nil "Modulus for all mod- functions, initially unset")
+*mod*
+(special-variable-p '*mod*)
+t
+(defun mod-+ (a b)
+  "Add numbers modulo *mod*"
+  (mod (+ a b) *mod*))
+\end{verbatim}
+The CL convention is to use asterisks in the name (e.g.\ \texttt{*random-state*}, \texttt{*print-circle*}), though Emacs does not follow this convention.
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  Once defined, the variable can be \emph{assigned} to (as indeed it must in our example), prior to the first call:
+\begin{verbatim}
+(setq *mod* 17)
+(mod-+ 12 14)
+9
+\end{verbatim}
+
+However, it can also be bound (in this example, it is still 17 from above):
+\begin{verbatim}
+(let ((*mod* 11))
+  (mod-+ 12 14))
+4
+(mod-+ 12 14)
+9  
+\end{verbatim}
+Notice that \texttt{*mod*} is not used anywhere in the lexical scope of the \texttt{let} binding...
+\end{frame}
+
+\begin{frame}{Scope and Extent}
+  \begin{itemize}
+  \item \emph{Scope} is about the \emph{region of visibility} of a variable binding
+    \begin{itemize}
+    \item In \emph{lexical scope}, binding is visible within the code block
+    \item In \emph{indefinite scope}, a binding is visible anywhere
+    \end{itemize}
+  \item \emph{Extent} is about the \emph{duration} of a variable binding
+    \begin{itemize}
+    \item In \emph{indefinite extent}, a binding is held indefinitely
+      \begin{itemize}
+      \item Until the compiler (or GC) can prove it is no longer reachable
+      \end{itemize}
+    \item In \emph{dynamic extent}, a binding is valid only while execution is within the range of the binding
+    \end{itemize}
+  \end{itemize}
+
+  \medskip
+  Scope and extent affect not just variable bindings, but everything that can be ``looked up'' with a symbol: functions, non-local exits, blocks, tags, etc.
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  A \texttt{let} binding has \emph{lexical scope} and \emph{indefinite extent}:
+
+\begin{verbatim}
+(let ((m 3))
+  (lambda (x) (+ x m)))
+\end{verbatim}
+The value of \texttt{m} is accessible only inside the \texttt{let}.  The resulting lambda expression will ``remember'' the \texttt{m}$=3$ binding even though \texttt{m} is not accessible to anyone once the \texttt{let} is exited.  In other words, \emph{closures} work with lexical scopes -- and indefinite extent.
+
+\medskip
+In contrast, \texttt{*mod*} has \emph{indefinite scope} (can be accessed by any of the \texttt{mod-} functions) but \emph{dynamic extent} (as witnessed by the temporary \texttt{*mod*}=11 binding).  Such variables are also called (and declared as) \emph{special variables}.  In EL, the \texttt{let} binding shadows the outer value, but the binding remains special.
+
+\medskip
+The combination of indefinite scope and dynamic extent is sometimes called ``dynamic scope'' (even in the ELisp documentation).
+\end{frame}
+
+%\begin{frame}[fragile]{Scope and Extent}
+
+%\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  We can now return to our Emacs alist example from Talk 3:
+\begin{verbatim}
+(let ((auto-mode-alist
+       (acons "\\.R$" 'text-mode auto-mode-alist)))
+  (find-file "/home/jens/projects/stats/line.R"))
+\end{verbatim}
+
+This example temporarily binds the (already) special variable \texttt{auto-mode-alist}, to a new value shadowing the existing value of R-mode.  Note it does not need \texttt{declare special} in the binding -- why not?
+
+\begin{itemize}
+\item The file, if it exists, is loaded in text mode.
+\item During the load, the mapping to text mode is visible to any part of Emacs.
+\item The local \texttt{auto-mode-alist} \emph{shadows} the global one
+\item Inside the new alist, the new cons cell \emph{shadows} the existing one
+\item After the \texttt{let} is exited (\emph{even in error}), \texttt{auto-mode-alist} retains its normal value (via the original binding)
+\item Any files whose names end with .R will subsequently load in R mode.
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  \begin{itemize}
+  \item Global (Lisp) functions are (essentially) constant -- with indefinite extent
+  \item User-defined functions:
+  \end{itemize}
+\begin{verbatim}
+(defun foo (x) "add two" (+ x 2))
+foo
+(defun bar (y) "call foo" (foo y))
+bar
+(flet ((foo (x) (* x 3)))
+  (bar 6))
+\end{verbatim}
+What is happening here -- what does the \texttt{flet} return?
+\begin{itemize}
+\item \texttt{foo} is defined to add two to a number
+\item \texttt{bar} is defined to call foo
+\item The \texttt{flet} normally creates a \emph{lexically} bound function
+\item However, there is already a global binding of \texttt{foo} to a function definition
+\item So the question is: does \texttt{bar} call the global \texttt{foo} (returns 8) or the one defined by \texttt{flet} (returns 18)?
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+In CL we can also have ``local'' variables with indefinite scope and dynamic (non-indefinite) extent:
+\begin{verbatim}
+(let ((a 4))    ; CL code
+  (declare (special a))
+  (foo))
+\end{verbatim}
+Now, while \texttt{foo} executes, \texttt{a} is bound to 4, despite \texttt{foo} being defined outside of the lexical scope of the \texttt{let}.  The binding ceases to exist after the \texttt{let} is exited.  While \texttt{let} would normally declare variables with lexical scope and indefinite extent, the declaration changes both so the scope of \texttt{a} is indefinite and the extent is dynamic.
+
+\medskip
+By convention, special variables -- whether declared as above, or globally with \texttt{defvar} (or by other means beyond this talk) -- have names that begin and end with '\texttt{*}', .e.g.\ \texttt{*a*}
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+  What happens here (this is CL code):
+\begin{verbatim}
+(let ((*special* "foo"))
+  (declare (special *special*))
+  (let ((*special* 'bar))
+    (makunbound '*special*)
+    (ignore-errors (list 1 *special* 2))))
+\end{verbatim}
+
+Contrast with this:
+\begin{verbatim}
+(let ((*special* "foo"))
+  (declare (special *special*))
+  (let ((*special* 'bar))
+    (declare (special *special*))
+    (makunbound '*special*)
+    (ignore-errors (list 1 *special* 2))))
+\end{verbatim}
+
+  The \texttt{declare special} does what \texttt{defvar} does (in terms of setting the extent) but there are two important differences...
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+\begin{verbatim}
+; SLIME 2.26.1
+CL-USER> (defvar *zut* 'baz)
+*ZUT*
+CL-USER> (defun foo () (list *zut*))
+FOO
+CL-USER> (foo)
+(BAZ)
+CL-USER> (let ((*zut* 'bzzt)) (foo))
+(BZZT)
+CL-USER> 
+\end{verbatim}
+
+\texttt{defvar} is stronger than a local special declaration: \texttt{*zut*} is special even in the local binding, despite not being declared special.  In EL, \texttt{defvar} is currently the only option, and bindings behave similarly (like we saw with \texttt{auto-mode-alist})
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+So far we have met
+\begin{itemize}
+\item Lexical scope and indefinite extent -- bindings created with \texttt{let}, \texttt{flet}
+  \begin{itemize}
+  \item Except if they shadow a global/dynamic scope
+  \end{itemize}
+\item Effectively ``global'' objects defined with \texttt{defvar} and \texttt{defun} have indefinite scope and indefinite extent
+  \begin{itemize}
+  \item Though formally they have dynamic scope -- the extent being the entire runtime
+  \item Constants -- and built-in functions -- also have indefinite scope and indefinite extent
+  \end{itemize}
+\item Catches have dynamic scope -- catches are valid only within the extent of the (implicit) \texttt{progn} they enclose
+  \begin{itemize}
+  \item And variables declared \texttt{special} (in CL only)
+  \end{itemize}
+\end{itemize}
+\begin{verbatim}
+(let ((a 3))     ; EL code
+  (declare (special a))
+  (special-variable-p 'a))
+nil
+\end{verbatim}
+So the remaining question is: does anything have lexical scope and dynamic extent?
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+Blocks have lexical scope and dynamic extent:
+\begin{verbatim}
+(block sknomz (list 1 2 3)
+              (return-from sknomz (list 8 9))
+              (list 4 5 6))
+(8 9)
+\end{verbatim}
+
+The implication is that this is an error:
+\begin{verbatim}
+(defun fact ()
+  (lambda (n)
+    (labels ((fact-1 (k)
+                 (when (zerop k) (return-from fact 1))
+                 (* k (fact-1 (1- k)))))
+      (fact-1 n))))
+(funcall (fact) 12)
+\end{verbatim}
+
+If we write \texttt{(return-from fact-1 1)} then it works -- in CL.  In EL, it still doesn't work though.
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent--Closures}
+Let's look a bit more closely at bindings.  What does this construction return?
+\begin{verbatim}
+(eq (lambda (foo) (+ foo 2))
+    (lambda (foo) (+ foo 2)))
+\end{verbatim}
+In fact it returns \texttt{nil} when evaluated in Emacs, but a compiler would be free to optimise and make the lambdas \texttt{eq}.
+
+\medskip
+Would this be optimisable?
+
+\begin{verbatim}
+(let ((foo (list 1 2)))
+  (eq (lambda (x) (cons x foo))
+      (lambda (x) (cons x foo)))
+\end{verbatim}
+(answer on the next slide)
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent--Closures}
+The compiler would be allowed to optimise the two lambdas and make them the same object (e.g.\ if the lambdas were returned in a list, they could be \texttt{eq}).
+
+\medskip
+In contrast, these lambdas must be different objects:
+\begin{verbatim}
+(list (lambda (x)
+       (let ((foo (list 1 2))) (cons x foo)))
+      (lambda (x)
+       (let ((foo (list 1 2))) (cons x foo))))
+\end{verbatim}
+Meditation: why?
+\end{frame}
+
+\begin{frame}[fragile]{Scope and Extent}
+This is really an advanced-squared topic so don't worry too much about it: but it is possible to have variables which, like blocks, have both lexical scope and dynamic extent?
+
+\medskip
+To do that, we declare a lexical variable but tell the compiler to give it dynamic extent (CL only):
+\begin{verbatim}
+(let ((a (list 1 2 3)))
+  (declare (dynamic-extent a))
+  (length a))
+\end{verbatim}
+What this tells the compiler is that the binding will not be referenced beyond the duration of the \texttt{let}: which is true, here the binding is used only as long as the list is created.
+
+\medskip
+This allows the compiler to (optionally, possibly) optimise the code and allocate \texttt{a} on the stack instead of the heap.  Thus, this would be particularly useful in a function definition when performance is important and the compiler cannot deduce that the binding does not need indefinite extent.
+\end{frame}
+
+\begin{frame}{Scope and Extent -- A Simplified Summary}
+  \begin{itemize}
+  \item \emph{Scope} is about the \emph{region} where a binding is accessible;
+  \item \emph{Extent} is about the time during execution where a binding is accessible;
+  \item \texttt{defvar} creates ``global'' variables
+    \begin{itemize}
+    \item These are \emph{special}: indefinite scope and dynamic extent (aka ``dynamic scope'')
+    \item Though the ``dynamic'' is (usually) the duration of the entire program (when created with \texttt{defvar})
+    \item (Unless the binding is removed with \texttt{makunbound})
+    \end{itemize}
+  \item \texttt{defun} does the same with functions
+    \begin{itemize}
+    \item \texttt{fmakunbound} removes the function definition
+    \end{itemize}
+  \item \texttt{let}/\texttt{let*}/\texttt{flet}/\texttt{labels}  create lexical bindings
+    \begin{itemize}
+    \item Unless the variable is already special or (CL) is declared special
+    \item These have lexical scope and indefinite extent (``lexical binding'')
+    \item Closures rely on these: the indefinite extent is needed to continue to access the binding
+    \item A lexical binding can \emph{never} be unbound
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Answers to exercises}
+A collection of hacks showing possible answers to the exercises... and another summary
+\end{frame}
+
+\begin{frame}[fragile]{Answers -- Variables}
+This is CL code (also not good code, as we shall see shortly, it just illustrates the effect of shadowing a special variable)
+\begin{verbatim}
+(let ((a 4))
+  (declare (special a))
+  (let ((y (lambda (x) (cons x a))))
+    (let ((a 'foo)) ; inner not special
+      (funcall y 'gloop))))
+(GLOOP . 4)
+\end{verbatim}
+The innermost binding of \texttt{a} is not declared special and has no effect on the outer special binding, and thus no effect on its use in \texttt{y}
+\end{frame}
+\begin{frame}[fragile]{Answers -- Variables}
+Contrast with this version where the inner binding \emph{is} special:
+\begin{verbatim}
+(let ((a 4))
+  (declare (special a))
+  (let ((y (lambda (x) (cons x a))))
+    (let ((a 'foo))
+      (declare (special a))
+      (funcall y 'gloop))))
+(GLOOP . FOO)
+\end{verbatim}
+In EL, the latter returns \texttt{(gloop . 4)} -- both bindings are lexical as special declarations are ignored and have no effect (EL 13.14)
+\end{frame}
+\begin{frame}[fragile]{Answers -- Variables}
+The worse problem with the example is that the lambda contains a reference to a special variable.  
+\begin{verbatim}
+; SLIME 2.27
+CL-USER> (defun dodgy-ref ()
+           (let ((a 3))
+             (declare (special a))
+             (lambda (x) (+ x a))))
+DODGY-REF
+CL-USER> (let ((y (dodgy-ref)))
+	   (funcall y 1))
+; Evaluation aborted on #<UNBOUND-VARIABLE A {100420B0C3}>.
+\end{verbatim}
+We do the same as before but the lambda doesn't work outside of the \texttt{let} -- we do not have a closure.  The reason is the \emph{dynamic extent} (duration) of the special binding: once the \texttt{let} is exited, the binding no longer exists.  This is why lexical bindings must have indefinite extent.
+\end{frame}
+\begin{frame}[fragile]{Answers -- Variables}
+Contrast this with defining a ``global'' variable with \texttt{defvar}:
+\begin{verbatim}
+CL-USER> (defvar *a* 3)
+*A*
+CL-USER> (let ((*a* 4)) ; not explicitly special
+           (+ 1 *a*))
+5
+CL-USER> (flet ((y (x) (+ x *a*)))
+           (let ((*a* 4))
+             (y 1)))
+5
+CL-USER> *a*
+3
+\end{verbatim}
+Note the inner binding does not declare \texttt{*a*} special but the effect is as if it were declared, as it affects the outer binding of \texttt{y}'s use of \texttt{*a*}.  A (toplevel) \texttt{defvar} cannot be shadowed lexically!
+\end{frame}
+\begin{frame}[fragile]{Answers -- Variables}
+  \begin{itemize}
+  \item In CL, \texttt{defparameter} also defines ``global'' variables (dynamic extent and indefinite scope)
+    \begin{itemize}
+    \item We assume \texttt{defvar} and \texttt{defparameter} are executed at toplevel
+    \end{itemize}
+  \item In EL, the only way to declare a special variable is with \texttt{defvar}
+    \begin{itemize}
+    \item (The reason specialness is pervasive with toplevel \texttt{defvar} is \texttt{defvar} \emph{proclaims} the symbol special (a proclamation is kind-of a pervasive declaration))
+    \end{itemize}
+  \item While the extent is dynamic, a toplevel \texttt{defvar} binding effectively remains until Emacs is exited (some people close Emacs...), or the binding is explicitly changed
+  \item Note that if the variable \emph{is already bound}, \texttt{defvar} has no effect
+  \end{itemize}
+\begin{verbatim}
+(defvar znork 'grulp)
+znork
+(defvar znork 'blazp)
+znork
+znork
+grulp
+\end{verbatim}
+\end{frame}
+
+
+\begin{frame}[fragile]{Answers -- Functions}
+Repeating the exercise with functions is now straightforward(ish):
+\begin{verbatim}
+CL-USER> (labels ((foo (x) (+ x 1))
+                  (bar (k) (* 2 (foo k))))
+           (flet ((foo (y) (ash y 4)))
+             (bar 3)))
+8
+\end{verbatim}
+(This code doesn't work in EL, though it will if you replace the inner \texttt{flet} with \texttt{labels}; the outer binding is made with \texttt{labels} so \texttt{bar} can reference \texttt{foo})
+
+\smallskip\noindent The calculation done here is \texttt{(* 2 (+ 3 1))}, ignoring the inner binding of \texttt{foo}, i.e.\ the binding is lexical (to be precise, the scope is lexical; the extent indefinite)
+\end{frame}
+
+\begin{frame}[fragile]{Answers -- Functions}
+Compare with this EL (CL is the same):
+\begin{verbatim}
+(defun foo (x) (+ x 1))
+foo
+(labels ((bar (k) (* 2 (foo k)))
+         (foo (y) (ash y 4)))
+  (bar 3))
+96
+\end{verbatim}
+The calculation done now is \texttt{(* 2 (ash 3 4))}.
+
+\smallskip\noindent Like \texttt{defvar}, (toplevel) \texttt{defun} \emph{proclaims} specialness of the binding assigned to its symbol, and the inner \texttt{foo} shadows the outer one and the shadowing is visible to \texttt{bar} even though \texttt{bar} does not ``see'' the inner definition of \texttt{foo} directly
+
+\end{frame}
+
+\begin{frame}{Summa Summarum}
+  \begin{itemize}
+  \item Lexical scope, indefinite extent (``lexical scope'')
+    \begin{itemize}
+    \item Variables defined with \texttt{let}
+    \item Functions defined with \texttt{flet}, \texttt{labels}
+    \end{itemize}
+  \item Indefinite scope, dynamic extent (``dynamic scope'')
+    \begin{itemize}
+    \item Variables defined with \texttt{let} and declared \texttt{special} (CL only)
+    \item Variables defined at toplevel with \texttt{defvar} (and CL, \texttt{defparameter})
+    \item Functions defined at toplevel (or in a toplevel \texttt{let}) with \texttt{defun}
+    \item \texttt{catch}es
+    \end{itemize}
+  \item Lexical scope, dynamic extent
+    \begin{itemize}
+    \item Blocks (including implicit blocks) and tags
+    \item Variables declared \texttt{dynamic-extent} (stack allocated, CL only)
+    \end{itemize}
+  \item Indefinite scope, indefinite extent
+    \begin{itemize}
+    \item Though formally special, constant variables (\texttt{most-negative-fixnum}) have indefinite extent and can neither be shadowed nor be unbound
+    \item \texttt{pi} is not special in EL but is constant
+    \item Symbols naming variables which reference themselves (\texttt{nil}, keywords)
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+
+\end{document}
