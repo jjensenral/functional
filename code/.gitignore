@@ -1,0 +1,4 @@
+# Standard Emacs gitignore
+*~
+\#*
+.*
